@@ -14,6 +14,10 @@ runs/
 out/
 *.mp4
 *.gif
+# ...except the one the README shows. Rendered figures and clips stay out of
+# git; the hero GIF is an asset the README cannot do without, and
+# web/walker/tools/capture.mjs regenerates it.
+!docs/maze.gif
 
 # Third-party reference code, fetched for study. Not ours to redistribute.
 ref/
