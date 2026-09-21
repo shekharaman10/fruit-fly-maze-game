@@ -1,0 +1,11 @@
+; Scratch project for prototyping physics before porting numbers back to
+; web/walker. Nothing here ships; see docs/walker.md.
+config_version=5
+
+[application]
+run/main_scene="res://knockdown.tscn"
+config/name="fruit fly -- physics lab"
+config/features=PackedStringArray("4.7", "Forward Plus")
+
+[rendering]
+renderer/rendering_method="forward_plus"

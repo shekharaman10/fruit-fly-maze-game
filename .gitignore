@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Connectome data. 1.1GB, fetched by scripts/fetch_data.py and pinned by SHA-256.
+data/*.feather
+cache/
+*.npz
+
+# Simulation output
+runs/
+out/
+*.mp4
+*.gif
+
+# Third-party reference code, fetched for study. Not ours to redistribute.
+ref/
+
+# Generated web artifacts. Rebuilt by scripts/export_web.py, export_brain.py
+# and the flybody converter; no reason to carry 25MB in the repo.
+web/data.json
+web/brain.bin
+web/brain.json
+web/flybody.glb
+assets/flybody.glb
+data/soma.npz
+
+# The maze gallery. Whatever images you drop in web/walker/art/ become the
+# paintings on the walls; `manifest.js` is generated from them by
+# tools/artManifest.mjs. Neither belongs in git: the art is yours, a clone
+# should not arrive carrying someone else's posters, and images in history are
+# there forever. web/walker/art/README.md explains the workflow.
+web/walker/art/*
+!web/walker/art/index.mjs
+!web/walker/art/README.md

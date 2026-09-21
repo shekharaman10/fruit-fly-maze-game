@@ -1,0 +1,125 @@
+# Reproducing this
+
+Everything published here is computed from pinned files and asserted in the
+test suite, so you should get the same numbers. If you do not, that is a real
+finding and worth reporting.
+
+## 1. Install
+
+```
+pip install -e .[dev]
+```
+
+CPU works and is the reference, but it is about 15x slower. Install a CUDA
+build of torch:
+
+```
+pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
+```
+
+Measured on an RTX 4050 laptop at 166,700 neurons:
+
+| | GPU | CPU |
+|---|---|---|
+| per step | 9.5 ms | 146.9 ms |
+| 300 ms clip | 0.5 min | 7.3 min |
+| 30 s clip | 47.6 min | 734.6 min |
+
+The graph takes 394 MB of VRAM, so 6 GB is ample. `torch` from PyPI is
+CPU-only by default, which is the slow path.
+
+```
+python -c "from amfly.sim.backend import describe; print(describe())"
+```
+
+`cuda_available: false` means the slow path. `torch` from PyPI is CPU-only by
+default.
+
+## 2. Fetch the connectome
+
+```
+python scripts/fetch_data.py --out data
+```
+
+About 1.1GB across three files, verified by SHA-256 against
+`data/manifest.json`. It refuses to proceed on a mismatch, which is deliberate:
+a silently updated release would change the numbers underneath you.
+
+`syn-points` and `syn-partners` are not fetched. They are per-synapse
+coordinates, another 19.5GB, and LIF dynamics do not use them.
+
+## 3. Verify the counts
+
+```
+python -m pytest tests/ -q
+```
+
+Expect these exactly:
+
+| | |
+|---|---|
+| Neurons | 166,700 |
+| Directed connections | 25,582,938 |
+| Synapses | 124,177,617 |
+| Descending neurons | 1,314 |
+| Thermoreceptors (`TRN_VP*`) | 25 |
+
+Without the dataset present the slow gates skip and the rest still run:
+
+```
+python -m pytest tests/ -q -m "not slow"
+```
+
+## 4. Run it
+
+```
+python scripts/run_sim.py --data data --ms 700 --out runs/001
+```
+
+700ms is the minimum worth running, because the dial commits its decision 500ms
+ahead and a shorter run shows no movement at all.
+
+## 5. Figures and clip
+
+```
+python scripts/make_figures.py --run runs/001 --out out/
+```
+
+Stills always. The mp4 and gif need ffmpeg on PATH, and their absence is
+reported rather than silently skipped.
+
+## What you should see
+
+With chamber 0 heated, measured on the full network:
+
+- Divergence begins around step 18, about 1.8ms, which is one synaptic delay
+  after the stimulus arrives.
+- The heated chamber differs by a few hundred neurons per step.
+- The other four chambers and the operator stay bit-identical to each other for
+  the whole run, distance exactly 0.
+
+That last line is the one to check. If unheated chambers drift apart, something
+is wrong: either determinism settings are off, or a non-deterministic reduction
+has crept in. It is not the piece working.
+
+## Determinism caveat
+
+Bit-identity is guaranteed within one machine and one configuration. Identical
+results across different GPUs, CUDA versions or torch builds are not promised,
+which is why every run records its backend in `provenance.json`.
+
+## Verified run, 2026-09-14
+
+Full suite against the real connectome on an RTX 4050 laptop, CPU path:
+
+```
+31 passed in 236.96s
+```
+
+That includes the slow gates that load the 1.1GB dataset and run the full
+166,700-neuron network twice. Every count, determinism, isolation, divergence,
+dial, heat, metric and analysis gate green.
+
+Machine: Windows 11, Python 3.11.4, numpy/scipy CPU path, torch 2.14.0+cpu.
+Step time drifted from 206ms to 250ms over a long run, which is thermal
+throttling and affects wall clock only.

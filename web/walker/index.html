@@ -1,0 +1,365 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>amfly / walker</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #dcdce0;
+    color: #9a9aa2;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  #scene { display: block; width: 100vw; height: 100vh; }
+
+  /* Panels sit on a white room, so each gets its own dark plate rather than
+     relying on a drop shadow against a dark scene. */
+  .panel {
+    background: rgba(18,18,22,.84); padding: 9px 11px;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+  body.bare .panel, body.bare #hud, body.bare #left { display: none; }
+
+  /* The left column FLOWS. Fixed tops collided as soon as the character picker
+     grew to four rows, and the fourth option ended up behind another panel. */
+  #left {
+    position: fixed; left: 16px; top: 14px; bottom: 14px; width: 306px;
+    display: flex; flex-direction: column; gap: 8px;
+    overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-width: thin; pointer-events: auto;
+  }
+  #left .panel { flex: 0 0 auto; }
+
+  h2 {
+    font-size: 9.5px; font-weight: 600; letter-spacing: .08em; color: #5c5c62;
+    margin-bottom: 6px;
+  }
+
+  #title h1 { font-size: 14px; font-weight: 600; letter-spacing: .16em; color: #d8d8de; }
+  #title .sub { color: #5c5c62; font-size: 10.5px; margin-top: 2px; }
+
+  #readout { font-size: 10.5px; }
+  #readout .row { display: flex; gap: 8px; }
+  #readout .k { color: #5c5c62; width: 96px; }
+  #readout .v { color: #9a9aa2; }
+
+  .pick {
+    display: flex; align-items: baseline; gap: 8px; width: 100%;
+    background: #16161c; border: 1px solid #26262e; color: #8a8a90;
+    font: inherit; font-size: 10.5px; text-align: left;
+    padding: 5px 8px; margin-bottom: 4px; cursor: pointer;
+  }
+  .pick:last-child { margin-bottom: 0; }
+  .pick:hover { border-color: #3d3d48; color: #b8b8c0; }
+  .pick[data-on] { border-color: #4f9e57; background: #17201a; color: #d0d6cf; }
+  .pick .pk { color: #5c5c62; width: 10px; }
+  .pick[data-on] .pk { color: #4f9e57; }
+  .pick .pn { flex: 1; }
+  .pick .pd { color: #5c5c62; font-size: 9.5px; }
+
+  .cmp { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+  .cmp-l { width: 112px; color: #8a8a90; font-size: 10px; }
+  .cmp-bar { flex: 1; height: 7px; background: #17171d; }
+  .cmp-bar i { display: block; height: 100%; background: #4f9e57; }
+  .cmp-v { width: 52px; text-align: right; color: #9a9aa2; font-size: 10px; }
+  .cmp-x { width: 42px; text-align: right; color: #5c5c62; font-size: 10px; }
+  #cmp-note, #cap-note {
+    color: #5c5c62; font-size: 10px; line-height: 1.5;
+  }
+  #cmp-note {
+    border-top: 1px solid #26262e; padding-top: 7px; margin-top: 8px;
+  }
+  #cmp-note b, #cap-note b { color: #8a8a90; font-weight: 500; }
+
+  #hud { position: fixed; top: 14px; right: 14px; border: 1px solid #24242c; }
+
+  #radar { display: block; border: 1px solid #24242c; }
+  .rlegend {
+    display: flex; gap: 10px; margin-top: 6px; font-size: 9.5px; color: #5c5c62;
+  }
+  .rlegend i {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 4px; vertical-align: middle;
+  }
+  .dot.seen { background: #4f9e57; }
+  .dot.mem { background: transparent; border: 1.5px solid #e0b341; }
+  .dot.tgt { background: transparent; border: 1.5px solid #e05a45; }
+  .dot.hear { background: #b4402a; border-radius: 1px; height: 4px; width: 9px; }
+
+  /* The view mode. Sits above the score, and is the most prominent control on
+     the page after the stop button, because which of the two modes is running
+     decides whether the camera answers the mouse at all. */
+  /* Both bottom-right panels live in ONE fixed column and stack in normal
+     flow. They were positioned independently, which meant the view panel's
+     offset had to guess the score panel's height -- and the score panel grows
+     whenever a row is added to it. */
+  #rightstack {
+    position: fixed; right: 14px; bottom: 14px;
+    width: 232px; display: flex; flex-direction: column; gap: 10px;
+    align-items: stretch; pointer-events: none;
+  }
+  #rightstack > * { pointer-events: auto; }
+  #view { width: 100%; }
+  #viewbtns { display: flex; gap: 6px; }
+  .vm {
+    font: inherit; font-size: 11px; letter-spacing: .06em; flex: 1;
+    background: #16161c; border: 1px solid #2c2c36; color: #70707a;
+    padding: 8px 0; cursor: pointer;
+  }
+  .vm:hover { background: #1e1e26; color: #b0b0ba; }
+  /* The two modes get different colours, not just different highlights: which
+     one is live should be readable without comparing them. */
+  .vm[data-mode="free"][data-on] {
+    background: #162a34; border-color: #4a92b8; color: #d2ecfa;
+  }
+  .vm[data-mode="follow"][data-on] {
+    background: #2c2338; border-color: #8a6ab0; color: #e6dbf5;
+  }
+  #shotrow, #freerow { display: none; gap: 4px; margin-top: 6px; }
+  .shot, #freerow button {
+    font: inherit; font-size: 9.5px; letter-spacing: .05em; flex: 1;
+    background: #16161c; border: 1px solid #2a2a33; color: #64646e;
+    padding: 5px 0; cursor: pointer; text-transform: uppercase;
+  }
+  .shot:hover, #freerow button:hover { background: #20202a; color: #a8a8b2; }
+  .shot[data-on] { background: #2c2338; border-color: #8a6ab0; color: #ddd0ee; }
+  #view .vnote {
+    font-size: 9px; color: #4a4a50; margin-top: 6px; text-align: center;
+    line-height: 1.5;
+  }
+
+  /* Bottom right, clear of the scene. It used to sit top centre, directly
+     over the thing being watched. */
+  #score { width: 100%; text-align: center; }
+  #score .big { font-size: 27px; line-height: 1.1; color: #d8d8de; font-weight: 600; }
+  #score .srow {
+    display: flex; justify-content: space-between; font-size: 10px;
+    color: #5c5c62; margin-top: 2px;
+  }
+  #score .srow b { color: #9a9aa2; font-weight: 500; }
+  #score .sev { height: 13px; font-size: 10.5px; font-weight: 600; margin-top: 5px; }
+
+  /* Life. The bar is the only thing on the panel that has to be readable at a
+     glance, so it is the only thing with colour that moves. */
+  #life-bar {
+    height: 7px; background: #26262e; border: 1px solid #33333d;
+    margin-top: 7px; overflow: hidden;
+  }
+  #life-fill {
+    height: 100%; width: 100%; background: #4f9e57;
+    transition: width .18s linear, background .18s linear;
+  }
+  #stop {
+    font: inherit; font-size: 11px; letter-spacing: .08em; width: 100%;
+    background: #2a1e1e; border: 1px solid #7a4a44; color: #e8cfcb;
+    padding: 7px 0; margin-top: 8px; cursor: pointer;
+  }
+  #stop:hover { background: #3a2826; color: #f6e6e3; }
+  #stop[data-on] { background: #1d3324; border-color: #4f9e57; color: #cfe6d2; }
+
+  #score .snote {
+    font-size: 9px; color: #4a4a50; margin-top: 5px;
+    border-top: 1px solid #26262e; padding-top: 5px;
+  }
+
+  #foot {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; align-items: flex-end;
+  }
+  #caveat { width: 38ch; font-size: 10px; color: #5c5c62; }
+  #caveat b { color: #8a8a90; font-weight: 500; }
+  #hint { font-size: 10px; color: #6a6a72; text-align: right; }
+
+  /* Eliminated. Same shape as the win card, different colour, so the two do
+     not have to be read to be told apart. */
+  #dead {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(16,8,8,.78); z-index: 51; pointer-events: auto;
+  }
+  #dead .card {
+    background: #1a1214; border: 1px solid #5e2f2a; padding: 26px 30px;
+    text-align: center; max-width: 430px;
+  }
+  #dead h1 {
+    font-size: 26px; letter-spacing: .16em; color: #e06a56; margin-bottom: 6px;
+  }
+  #dead .sub { color: #8a7a7a; font-size: 11px; margin-bottom: 14px; }
+  #dead-stats {
+    color: #8a7a7a; font-size: 11px; line-height: 1.6; margin-bottom: 18px;
+  }
+  #dead-stats b { color: #ded2d2; font-weight: 600; }
+  #dead-restart {
+    font: inherit; font-size: 12px; letter-spacing: .08em;
+    background: #33201d; border: 1px solid #9e564f; color: #e6d0cd;
+    padding: 9px 22px; cursor: pointer;
+  }
+  #dead-restart:hover { background: #422a26; color: #f5eae8; }
+
+  /* Win overlay. The run stops here until the button is pressed. */
+  #win {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(12,12,16,.72); z-index: 50; pointer-events: auto;
+  }
+  #win .card {
+    background: #14141a; border: 1px solid #2f4a36; padding: 26px 30px;
+    text-align: center; max-width: 430px;
+  }
+  #win h1 {
+    font-size: 26px; letter-spacing: .16em; color: #6fd07d; margin-bottom: 6px;
+  }
+  #win .sub { color: #8a8a90; font-size: 11px; margin-bottom: 14px; }
+  #win-stats {
+    color: #8a8a90; font-size: 11px; line-height: 1.6; margin-bottom: 18px;
+  }
+  #win-stats b { color: #d8d8de; font-weight: 600; }
+  #restart {
+    font: inherit; font-size: 12px; letter-spacing: .08em;
+    background: #1d3324; border: 1px solid #4f9e57; color: #cfe6d2;
+    padding: 9px 22px; cursor: pointer;
+  }
+  #restart:hover { background: #24422e; color: #eaf5ec; }
+  .winbtns { display: flex; gap: 10px; justify-content: center; }
+  #look {
+    font: inherit; font-size: 12px; letter-spacing: .08em;
+    background: #1b2330; border: 1px solid #4a6a8f; color: #cfe0f2;
+    padding: 9px 18px; cursor: pointer;
+  }
+  #look:hover { background: #24303f; color: #eaf2fa; }
+  .winhint { margin-top: 12px; font-size: 10px; color: #5c5c62; }
+  .winhint b { color: #8a8a90; font-weight: 500; }
+  #hint b { color: #9a9aa2; font-weight: 500; }
+</style>
+
+<canvas id="scene"></canvas>
+
+<div id="left">
+  <div class="panel" id="title">
+    <h1>AMFLY / WALKER</h1>
+    <div class="sub">central complex walking a DFS route to the centre</div>
+  </div>
+
+  <div class="panel" id="readout">
+    <div class="row"><span class="k">speed</span><span class="v" id="r-speed">0</span></div>
+    <div class="row"><span class="k">step freq</span><span class="v" id="r-step">0</span></div>
+    <div class="row"><span class="k">tripod sync</span><span class="v" id="r-sync">0</span></div>
+    <div class="row"><span class="k">compass err</span><span class="v" id="r-cerr">0</span></div>
+    <div class="row"><span class="k">landmark</span><span class="v" id="r-landmark">on</span></div>
+    <div class="row"><span class="k">weapon</span><span class="v" id="r-weapon">rifle</span></div>
+    <div class="row"><span class="k">kills</span><span class="v" id="r-kills">0 shot / 0 cut</span></div>
+    <div class="row"><span class="k">flies</span><span class="v" id="r-flies">6 / 6</span></div>
+    <div class="row"><span class="k">position</span><span class="v" id="r-room">ring 6</span></div>
+    <div class="row"><span class="k">route</span><span class="v" id="r-progress">0 / 0</span></div>
+    <div class="row"><span class="k">mode</span><span class="v" id="r-mode">coverage</span></div>
+    <div class="row"><span class="k">doing</span><span class="v" id="r-doing">marching</span></div>
+    <div class="row"><span class="k">art seen</span><span class="v" id="r-viewed">0 / 0</span></div>
+    <div class="row"><span class="k">camera</span><span class="v" id="r-cam">free</span></div>
+    <div class="row"><span class="k">search</span><span class="v" id="r-search">cruise</span></div>
+    <div class="row"><span class="k">fps</span><span class="v" id="r-fps">0</span></div>
+  </div>
+
+  <div class="panel" id="radarbox">
+    <h2>RADAR &mdash; MAZE AND WHAT THE BRAIN KNOWS</h2>
+    <canvas id="radar"></canvas>
+    <div class="rlegend">
+      <span><i class="dot seen"></i>seen now</span>
+      <span><i class="dot mem"></i>remembered</span>
+      <span><i class="dot tgt"></i>locked</span>
+      <span><i class="dot hear"></i>heard</span>
+    </div>
+  </div>
+
+  <div class="panel" id="pick">
+    <h2>CHARACTER</h2>
+    <div id="pick-rows"></div>
+  </div>
+
+  <div class="panel" id="cmp">
+    <h2>SCALE &mdash; AND WHAT IT COSTS THE GAIT</h2>
+    <div id="cmp-rows"></div>
+    <div id="cmp-note"></div>
+  </div>
+
+  <div class="panel" id="cap">
+    <h2>BRAIN BUDGET</h2>
+    <div id="cap-note"></div>
+  </div>
+</div>
+
+<canvas id="hud"></canvas>
+
+<div id="rightstack">
+<div class="panel" id="view">
+  <h2>VIEW</h2>
+  <div id="viewbtns"></div>
+  <div id="shotrow"></div>
+  <div id="freerow"></div>
+  <div class="vnote">
+    <b>V</b> switch mode<br>
+    free: drag to rotate &middot; wheel to zoom &middot; right-drag to pan
+  </div>
+</div>
+
+<div class="panel" id="score">
+  <h2>SCORE</h2>
+  <div class="big" id="r-score">0</div>
+  <div class="srow"><span>streak</span><b id="sc-streak">-</b></div>
+  <div class="srow"><span>cooldown</span><b id="sc-cool">1.00&times;</b></div>
+  <div class="srow"><span>missed shots</span><b id="sc-missed">0</b></div>
+  <div class="srow"><span>landed on</span><b id="sc-landed">0</b></div>
+  <div class="srow"><span>life</span><b id="sc-life">12 / 12</b></div>
+  <div id="life-bar"><div id="life-fill"></div></div>
+  <div class="sev" id="sc-event"></div>
+  <button id="stop">STOP</button>
+  <div class="snote">shot +10 &middot; cut +25 &middot; art +5 &middot; centre +150 &middot; miss &minus;2 &middot; landed &minus;15</div>
+</div>
+</div>
+
+<div id="foot">
+  <div class="panel" id="caveat">
+    An engineered gait whose parameters are modulated by circuit activity.
+    <b>Not</b> the connectome walking the body &mdash; see docs/walker.md.
+  </div>
+  <div class="panel" id="hint">
+    <b>V</b> free view / follow him &middot; <b>1-6</b> character &middot;
+    <b>C</b> shot &middot; <b>G</b> find him &middot; <b>B</b> whole maze<br>
+    <b>L</b> landmark &middot; <b>M</b> route &middot; <b>F</b> hold fire &middot; <b>space</b> pause &middot;
+    <b>R</b> reset &middot; <b>H</b> hide &middot; <b>arrows</b> turn model
+  </div>
+</div>
+
+<div id="dead">
+  <div class="card">
+    <h1>ELIMINATED</h1>
+    <div class="sub">the swarm got through once too often</div>
+    <div id="dead-stats"></div>
+    <div class="winbtns">
+      <button id="dead-restart">RESTART &mdash; NEW MAZE</button>
+    </div>
+  </div>
+</div>
+
+<div id="win">
+  <div class="card">
+    <h1>CENTRE REACHED</h1>
+    <div class="sub">every corridor walked, and sat down at the table</div>
+    <div id="win-stats"></div>
+    <div class="winbtns">
+      <button id="look">LOOK AROUND</button>
+      <button id="restart">RESTART &mdash; NEW MAZE</button>
+    </div>
+    <div class="winhint">arrow keys turn him &middot; <b>C</b> for POV</div>
+  </div>
+</div>
+
+<!-- The vendored OrbitControls imports the bare specifier "three". Everything
+     else imports ./vendor/three.module.js by path, so node can run the same
+     modules without a bundler; both resolve to the same URL, so three is
+     instantiated once. -->
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+
+<script type="module" src="./main.js"></script>

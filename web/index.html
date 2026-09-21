@@ -1,0 +1,1897 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>amfly</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #150a0d;
+    color: #d8d8d8;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  #c { display: block; width: 100vw; height: 100vh; }
+  .panel {
+    position: fixed; padding: 14px 16px; pointer-events: none;
+    text-shadow: 0 1px 3px #000, 0 0 10px #000;
+  }
+  #title { top: 0; left: 0; }
+  #title h1 { font-size: 15px; font-weight: 600; letter-spacing: .14em; }
+  #title .sub { color: #6e6e74; font-size: 11px; margin-top: 3px; }
+  #readout { top: 62px; left: 0; text-align: left; font-size: 11px; color: #8a8a90; }
+  #readout .row { display: flex; gap: 10px; justify-content: flex-start; width: 150px; }
+  #readout .k { color: #5c5c62; }
+  #footer { bottom: 0; left: 0; color: #5c5c62; font-size: 10.5px; max-width: 46ch; }
+  #footer b { color: #8a8a90; font-weight: 500; }
+  #hint { bottom: 0; right: 0; color: #4a4a50; font-size: 10.5px; }
+  #traces {
+    position: fixed; left: 14px; bottom: 74px; pointer-events: none;
+  }
+  /* Brain tiles: a 2x3 block, so the six are compared at a glance. */
+  #brains {
+    position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
+    display: grid; grid-template-columns: repeat(2, auto); gap: 8px 10px;
+    pointer-events: none;
+  }
+  #brains .blab {
+    font-size: 9.5px; color: #5c5c62; letter-spacing: .04em; margin-bottom: 2px;
+  }
+  #brains canvas {
+    display: block; background: #0e0e12; border: 1px solid #2a1a1e;
+  }
+  #traces .t { margin-bottom: 7px; }
+  #traces .lab {
+    font-size: 9.5px; color: #5c5c62; letter-spacing: .04em;
+    display: flex; justify-content: space-between; width: 190px;
+    margin-bottom: 1px;
+  }
+  #traces canvas { display: block; background: #101014; border-left: 1px solid #3a2228; }
+
+  /* The operator's own state. Placed apart from the chamber readouts,
+     because it is the one thing in the scene that is not about a chamber. */
+  #drive {
+    position: fixed; left: 14px; top: 190px; pointer-events: none; width: 200px;
+  }
+  #drive .dlab {
+    font-size: 9.5px; color: #5c5c62; letter-spacing: .06em;
+    display: flex; justify-content: space-between; margin-bottom: 3px;
+  }
+  #drive .bar {
+    height: 7px; background: #141419; border: 1px solid #2e1b20;
+    margin-bottom: 9px; position: relative; overflow: hidden;
+  }
+  #drive .fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+  }
+  #drive .cap {
+    font-size: 9.5px; color: #4a4a50; letter-spacing: .04em;
+    margin: -4px 0 10px 0; line-height: 1.45;
+  }
+</style>
+
+<canvas id="c"></canvas>
+
+<div class="panel" id="title">
+  <h1>AMFLY</h1>
+  <div class="sub">nomouth</div>
+</div>
+
+<div class="panel" id="readout"><div id="rows"></div></div>
+
+<div id="traces"></div>
+
+<div class="panel" id="drive">
+  <div class="dlab"><span>OPERATOR &middot; REWARD</span><span id="rv">0</span></div>
+  <div class="bar"><div class="fill" id="rf" style="background:#3f8f5a"></div></div>
+  <div class="dlab"><span>OPERATOR &middot; HEAT</span><span id="pv">0</span></div>
+  <div class="bar"><div class="fill" id="pf" style="background:#b4402a"></div></div>
+  <div class="cap" id="dcap">&nbsp;</div>
+</div>
+
+<div id="brains"></div>
+
+<div class="panel" id="hint">drag to orbit &middot; scroll to zoom &middot; <b>F</b> take &middot; <b>C</b> camera &middot; <b>R</b> record &middot; <b>S</b> sound</div>
+<div class="panel" id="rec" style="top:0;left:50%;transform:translateX(-50%);display:none;color:#ff5a45">
+  <span style="font-size:11px">&#9679; RECORDING <span id="recT">0.0</span>s &middot; press R to stop</span>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const DATA = await (await fetch('./data.json')).json();
+
+// The Janelia/DeepMind flybody scan, Apache-2.0, converted from the MJCF
+// visual meshes. 85 meshes, 153 named nodes, so legs and wings are addressable
+// by name instead of being primitives I posed by hand.
+const FLY = (await new GLTFLoader().loadAsync('./flybody.glb')).scene;
+
+// Soma point cloud. One dot per cell body at its real neuPrint coordinate,
+// the same technique every other project uses: nobody renders neuron arbors,
+// they would be millions of segments and would read as fog.
+const BMETA = await (await fetch('./brain.json')).json();
+const BBUF = await (await fetch('./brain.bin')).arrayBuffer();
+const B_POS = new Float32Array(BBUF, 0, BMETA.points * 3);
+const B_LIVE = new Uint32Array(BBUF, BMETA.position_bytes, BMETA.live);
+const B_ACT = new Uint8Array(BBUF, BMETA.position_bytes + BMETA.live_bytes);
+const CH = DATA.meta.chambers.length;
+
+// ---------------------------------------------------------------- scene
+const canvas = document.querySelector('#c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// Back up for the dark room. With near-black walls there is nothing to clip,
+// and the extra exposure is what lifts the equipment out of the background
+// while leaving the heated pins as the brightest thing in frame.
+renderer.toneMappingExposure = 1.12;
+
+const scene = new THREE.Scene();
+// Background and fog take the wall colour, so the room does not end at a
+// visible seam. Fog slightly darker than the walls makes the far end of the
+// room fall away rather than glow, which is what gives the space depth.
+scene.background = new THREE.Color('#150a0d');
+scene.fog = new THREE.Fog('#1c0e11', 18, 46);
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 3.4, 11.5);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.target.set(0, 0.5, 0);
+controls.minDistance = 4;
+controls.maxDistance = 22;
+controls.maxPolarAngle = Math.PI * 0.52;
+
+// Ambient for a dark room: it does most of the work, because near-black walls
+// bounce almost nothing back. The sky colour stays cool so the equipment does
+// not turn uniformly red, and the ground colour carries a little of the
+// maroon, which is the bounce the floor and walls would actually return.
+scene.add(new THREE.HemisphereLight('#8ea3c6', '#2a161a', 1.1));
+const key = new THREE.DirectionalLight('#ffffff', 1.5);
+key.position.set(4, 9, 6);
+key.castShadow = true;
+// The only shadow map in the scene, so it carries everything.
+//
+// 3072 rather than 4096: over a 15 unit box that is 0.0049 units per texel,
+// which keeps every thin part above four texels (pin 4.9, cable 6.6, leg 4.1)
+// for half the memory of 4096. 67 MB in a single buffer is a lot to ask of a
+// 6GB laptop that is also holding six 272k-triangle flies.
+key.shadow.mapSize.set(3072, 3072);
+// Fit the shadow camera to what is actually there.
+//
+// It used to be a 24 by 24 box around a scene about 11 by 9, so more than
+// half the map covered empty room and everything real got a third of the
+// resolution it could have had. At 24 units across a 2048 map, one texel
+// covered 0.0117 units: a pin is 0.024 across and a cable 0.032, so both
+// were two or three texels wide and could not cast anything legible. Tight
+// bounds plus a larger map give 0.0032 per texel, which is seven to ten
+// texels across the thin parts.
+key.shadow.camera.left = -7.5; key.shadow.camera.right = 7.5;
+key.shadow.camera.top = 6.5; key.shadow.camera.bottom = -6.5;
+key.shadow.camera.near = 0.5; key.shadow.camera.far = 22;
+// normalBias offsets along the surface normal and is the right tool for thin
+// geometry; constant bias alone either leaves acne or detaches the shadow
+// from whatever casts it. The fly's shadows were switched off entirely
+// because of acne that this fixes properly.
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.022;
+scene.add(key);
+// Fill goes back up. In a dark room nothing bounces, so without it the side
+// of every object away from the key falls to pure black and the shapes stop
+// reading. Slightly warm, so the shadow side picks up the room rather than
+// looking lit by a second white lamp.
+const fill = new THREE.DirectionalLight('#9a8fa8', 0.5);
+fill.position.set(-6, 3, -4);
+scene.add(fill);
+
+// A hard overhead light per specimen. Under inspection, not on display.
+//
+// These are the strongest lights in the scene at intensity 22, and they cast
+// no shadow at all, so each fly was lit hard from above while nothing beneath
+// it darkened. That is most of why the scene read as ungrounded. A spot
+// directly overhead also gives the pool of shadow under each specimen that an
+// examination light should.
+for (let i = 0; i < 5; i++) {
+  const sp = new THREE.SpotLight('#cfe0ff', 22, 9, 0.42, 0.55, 1.6);
+  sp.position.set((i - 2) * 1.72, 4.2, 0);
+  sp.target.position.set((i - 2) * 1.72, -1, 0);
+  // These do NOT cast, and that is the point of having only one caster.
+  //
+  // Turning them on gave every fly two shadows: one angled from the key at 51
+  // degrees and one straight down from here at 90. Both were sharp and both
+  // were near full strength, so neither read as dominant and the pair looked
+  // like a rendering error rather than like lighting. A single caster is what
+  // makes a shadow read as a shadow.
+  //
+  // The key keeps the job because its shadow falls to the side where it can
+  // be seen and where it connects the fly to its plate. A straight-down
+  // shadow sits under the body, mostly hidden by the body, and grounds
+  // nothing. These lamps still do the work they were added for: a hard pool
+  // of light on each specimen.
+  sp.castShadow = false;
+  scene.add(sp, sp.target);
+}
+
+// Floor, so the chambers sit on something rather than float.
+// A room rather than an infinite plane. The piece is about confinement, and a
+// floor fading into fog reads as open space.
+// A dark maroon room.
+//
+// White was tried and read wrong: it made the piece look like a product shot
+// and took all the menace out of it. Black was where it started, and black
+// gave the equipment nothing to sit against.
+//
+// Maroon is the useful third thing. It is dark enough to keep the room
+// oppressive and to let the heated pins be the brightest thing in frame, but
+// it is a colour rather than an absence, so corners and falloff still read
+// and the benches have a surface behind them. It also shares a hue with the
+// heat, which makes a chamber at full seem to bleed into the room instead of
+// sitting on top of it.
+//
+// #2a1216 rather than anything more saturated: at this value the red is felt
+// more than seen, which is what keeps it eerie instead of theatrical.
+const ROOM_W = 26, ROOM_D = 20, ROOM_H = 11;
+const wallMat = new THREE.MeshStandardMaterial({
+  color: '#2a1216', roughness: 0.95, metalness: 0, side: THREE.BackSide,
+});
+const room = new THREE.Mesh(
+  new THREE.BoxGeometry(ROOM_W, ROOM_H, ROOM_D), wallMat
+);
+room.position.y = ROOM_H / 2 - 1.05;
+// Back off again. The walls are dark enough that a shadow on them cannot be
+// seen, and the material is BackSide, so its faces point away from every
+// light in the scene and the lookup cannot change a pixel.
+room.receiveShadow = false;
+scene.add(room);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(ROOM_W, ROOM_D),
+  // Cooler and darker than the walls, so the floor does not read as more
+  // maroon. A slightly glossy near-black takes the bench shadows cleanly and
+  // keeps the corner where it meets the walls.
+  new THREE.MeshStandardMaterial({
+    color: '#17131a', roughness: 0.62, metalness: 0.06,
+  })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -1.049;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// One source of truth for the working surface.
+//
+// Everything that stands on the bench derives its height from this rather
+// than carrying its own constant. Three separate hardcoded values had drifted
+// apart: the platforms floated 0.560 above the bench, the panel 0.430, and
+// the wires ran through all of it because nothing agreed on where the surface
+// was.
+// The bench stands ON the floor. It used to be centred at -1.30 with a height
+// of 0.5, so its underside sat at -1.55 against a floor at -1.049: half a
+// unit of it was buried, and the legs of the thing everything else rests on
+// were inside the ground.
+const FLOOR_Y = -1.049;
+const BENCH_H = 0.5;
+const BENCH_TOP = FLOOR_Y + BENCH_H;
+
+// A bench the cages stand on, so they are equipment on a surface.
+const bench = new THREE.Mesh(
+  new THREE.BoxGeometry(5 * 1.72 + 1.4, 0.5, 2.6),
+  new THREE.MeshStandardMaterial({ color: '#232830', roughness: 0.55, metalness: 0.35 })
+);
+bench.position.set(0, BENCH_TOP - BENCH_H / 2, 0);
+bench.castShadow = true; bench.receiveShadow = true;
+scene.add(bench);
+
+const opBench = new THREE.Mesh(
+  new THREE.BoxGeometry(2.6, 0.5, 2.6),
+  new THREE.MeshStandardMaterial({ color: '#232830', roughness: 0.55, metalness: 0.35 })
+);
+opBench.position.set(0, BENCH_TOP - BENCH_H / 2, -3.6);
+opBench.castShadow = true; opBench.receiveShadow = true;
+scene.add(opBench);
+
+// ------------------------------------------------------------- chambers
+// Five in a row, the operator set apart. The five are identical objects
+// because the five instances are identical programs.
+const SPACING = 1.72;
+const chambers = [];
+
+function makeChamber(x, isOperator) {
+  const g = new THREE.Group();
+  g.position.x = x;
+
+  // NO CAGE.
+  //
+  // There used to be a glass box and a wireframe cube around each fly. They
+  // were doing the confinement work, and the mounting pin does that better:
+  // a box says "cannot leave", a pin through the thorax says "was never going
+  // to". Two objects making the same point meant the weaker one was reading
+  // as set dressing, and the boxes fought the shot, catching specular
+  // highlights and putting a bright line between the viewer and the fly.
+  //
+  // `glass` is kept as an empty group so the G key and the recorder keep
+  // working rather than throwing on a missing object.
+  const glass = new THREE.Group();
+  glass.visible = false;
+  g.add(glass);
+  const edges = new THREE.Group();
+  g.add(edges);
+
+  // A clone of the real scan per chamber. Cloning shares geometry, so six
+  // flies cost one upload. Materials are cloned per fly because each chamber
+  // is tinted by its own heat level.
+  // The scan is Z-up with +X forward (head at x=+0.057, abdomen at x=-0.045;
+  // wings separate along Y at +/-0.043). Three.js is Y-up with -Z forward, so
+  // without this the flies face sideways and the wings lie edge-on to the
+  // camera and disappear. Wrap the clone in a group that does the conversion
+  // once, rather than fighting it joint by joint.
+  const core = new THREE.Group();
+  const rig = FLY.clone(true);
+  // Exact basis change, solved rather than guessed. Chasing Euler signs by
+  // eye produced, in order: facing west, banking like an aircraft, looking up,
+  // then looking down.
+  //
+  // The model is ALREADY Y-up: +X forward, +Y up, +Z left. The node
+  // translations misled me, since wing_left/wing_right separate along Y at
+  // +/-0.043, which looked like a left-right axis but is the wing hinge
+  // height. Assuming Z-up meant tilting a model that needed no tilt, which is
+  // where the 90 degree bank came from.
+  //
+  // So the only correction needed is yaw: +X forward -> -Z forward.
+  rig.rotation.y = Math.PI / 2;
+  core.add(rig);
+  const skin = new THREE.MeshStandardMaterial({
+    color: '#2a2a30',
+    // The operator is the same fly as the five, so it is the same colour.
+    // It used to glow blue, which made it the special one in the room, and
+    // the piece is that it is not: it is mounted on the same pin, wired into
+    // the same machine, and burned by the same thermoreceptors. Its state is
+    // shown by the panel and by its own pin, not by tinting the animal.
+    emissive: new THREE.Color('#1a1a1e'),
+    emissiveIntensity: 1, roughness: 0.55, metalness: 0.12,
+  });
+  // Plain alpha, not transmission. MeshPhysicalMaterial with transmission
+  // renders in a separate pass that does not respect transparent + DoubleSide
+  // together, so each wing was visible from one side only: from the left you
+  // saw the right wing and vice versa. depthWrite off stops the near wing
+  // occluding the far one.
+  // DoubleSide so a wing is visible from either side, depthWrite ON so they do
+  // not vanish into the dark background, and emissive so they read against it
+  // without depending on a light happening to catch them. depthWrite:false
+  // made them disappear entirely; transmission made each visible from one
+  // side only.
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: '#cfe0f5', transparent: true, opacity: 0.55,
+    roughness: 0.3, metalness: 0,
+    emissive: new THREE.Color('#6d86ab'), emissiveIntensity: 0.55,
+    side: THREE.DoubleSide, depthWrite: true,
+  });
+  const _seen = { wing: [], other: 0 };
+  rig.traverse(o => {
+    if (!o.isMesh) return;
+    // The fly casts, at last.
+    //
+    // This was switched off because the scan is 272k triangles with thin
+    // overlapping parts and the shadow map put acne across the body while the
+    // legs shadowed themselves. The cause was bias, not the geometry: a
+    // constant bias cannot serve both a flat plate and a 0.02-thick leg.
+    // normalBias offsets along the surface normal instead and handles both,
+    // so the object the piece is about no longer floats over its own plate.
+    //
+    // Wings do not cast. They are transparent and double-sided, and a shadow
+    // map ignores alpha, so a wing would throw a hard opaque slab across the
+    // body that is far more wrong than no shadow at all.
+    const isWing = /wing/i.test(o.name);
+    o.castShadow = !isWing;
+    o.receiveShadow = true;
+    o.material = isWing ? wingMat : skin;
+    if (isWing) {
+      o.visible = true;
+      o.frustumCulled = false;
+      o.renderOrder = 2;
+      _seen.wing.push(o.name);
+    } else _seen.other++;
+  });
+  if (!window.__wingReport) {
+    window.__wingReport = _seen;
+    console.log('[amfly] wing meshes found:', _seen.wing, 'other meshes:', _seen.other);
+  }
+  core.material = skin;  // apply() drives this one material
+
+  // MOUNTED, not standing.
+  //
+  // The fly used to rest on the cage floor, which reads as an animal that
+  // could walk away and has chosen not to. It hangs on a pin now, driven down
+  // through the thorax into the base plate, the way a preserved specimen is
+  // mounted. The stillness stops needing an explanation: it is not holding
+  // position, it is fixed in place.
+  //
+  // The pin is also the heat source, so the mechanism is visible rather than
+  // implied. Heat arrives through the thing holding it there.
+  const box = new THREE.Box3().setFromObject(rig);
+  const span = Math.max(...box.getSize(new THREE.Vector3()).toArray());
+  const baseScale = 1.25 / span;
+  core.scale.setScalar(baseScale);
+
+  const b2 = new THREE.Box3().setFromObject(rig);
+  const ctr = b2.getCenter(new THREE.Vector3());
+  rig.position.x -= ctr.x;
+  rig.position.z -= ctr.z;
+  // Lift clear of the floor so the legs hang. Cage interior floor is at -0.75;
+  // MOUNT_Y is where the body centre sits, high enough that the legs dangle
+  // without the abdomen touching down.
+  const MOUNT_Y = -0.18;
+  rig.position.y -= ctr.y - MOUNT_Y / baseScale;
+
+  const wings = [];
+  for (const side of ['left', 'right']) {
+    const w = rig.getObjectByName(`wing_${side}`);
+    if (w) wings.push({ pivot: w, base: w.rotation.clone(), sx: side === 'left' ? 1 : -1 });
+  }
+  const legs = [];
+  for (const seg of ['femur', 'tibia']) {
+    for (const t of ['T1', 'T2', 'T3']) {
+      for (const side of ['left', 'right']) {
+        const l = rig.getObjectByName(`${seg}_${t}_${side}`);
+        if (l) legs.push({ mesh: l, base: l.rotation.clone(), sx: side === 'left' ? 1 : -1 });
+      }
+    }
+  }
+
+  core.userData = { wings, legs, skin, baseScale };
+  g.add(core);
+
+  // The mounting pin. Runs from the base plate up through the thorax and out
+  // the top, as an entomological pin does.
+  //
+  // Two materials, deliberately. The shaft is dull steel and stays cold; only
+  // the segment inside the body glows, so the heat reads as entering at the
+  // thorax rather than the whole pin being hot. A uniformly glowing rod would
+  // look like a lamp. This looks like something being conducted into an
+  // animal.
+  const PIN_TOP = 0.62;
+  const PIN_BOT = -0.79;
+  // Thin, like an entomological pin.
+  //
+  // At 0.012 radius against a body about 1.25 long, the shaft read as a spike
+  // driven through the animal rather than as something it was mounted on. A
+  // real insect pin is close to hair-thin next to the specimen, and the piece
+  // is better served by the fly being held than by it being impaled.
+  const pinShaft = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0062, 0.0062, PIN_TOP - PIN_BOT, 10),
+    new THREE.MeshStandardMaterial({
+      color: '#b9c0c8', roughness: 0.28, metalness: 0.95,
+    })
+  );
+  pinShaft.position.y = (PIN_TOP + PIN_BOT) / 2;
+  // The bare shaft no longer casts. At 0.0124 across it is 2.5 texels in a
+  // 3072 map over 15 units, and under about 2 texels a shadow breaks into
+  // dashes: a dashed line under a solid pin looks like a rendering fault. The
+  // heated segment (4.3 texels) and the head still cast, so the pin is still
+  // grounded where it matters.
+  pinShaft.castShadow = false;
+  g.add(pinShaft);
+
+  // The heated segment, sitting where the pin passes through the thorax.
+  const pinHot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0105, 0.0105, 0.42, 12),
+    new THREE.MeshStandardMaterial({
+      color: '#4a4036', emissive: new THREE.Color('#ff3b10'),
+      emissiveIntensity: 0, roughness: 0.5, metalness: 0.6,
+    })
+  );
+  pinHot.position.y = MOUNT_Y;
+  // The heated segment is the thickest part of the pin and sits at body
+  // height, so it is what actually throws a shadow down the plate.
+  pinHot.castShadow = true;
+  g.add(pinHot);
+
+  // A small head on the pin, so it reads as a pin and not a rod.
+  const pinHead = new THREE.Mesh(
+    new THREE.SphereGeometry(0.019, 12, 10),
+    new THREE.MeshStandardMaterial({
+      color: '#0f1114', roughness: 0.35, metalness: 0.5,
+    })
+  );
+  pinHead.position.y = PIN_TOP;
+  pinHead.castShadow = true;
+  g.add(pinHead);
+
+  // A light inside the box, so heat spills onto the neighbours.
+  const lamp = new THREE.PointLight('#ff5a33', 0, 5.5, 2);
+  g.add(lamp);
+
+  // No floor pad.
+  //
+  // A heat-scaled disc used to sit under each fly. It was the last readout
+  // added before the pin existed, and once the pin, the LED and the cable all
+  // carried the same signal it was a fourth copy of it. It also cut through
+  // the cables: it sat at world -0.499 against a cable lying at -0.486, and
+  // it grew to radius 1.04 against a plate only 0.81 across, so it overhung
+  // the plate by up to 0.23 and swept through the wires as it scaled.
+
+  // A voltage readout behind each specimen.
+  //
+  // The number the whole piece turns on was only ever visible in the HTML
+  // panel, so the 3D view could not say what any chamber was receiving. This
+  // puts it at the specimen, where the eye already is.
+  //
+  // Drawn to a canvas texture rather than built from geometry: digits as
+  // meshes would be dozens of extra draw calls per chamber and would need a
+  // font loaded, while a 256x128 canvas costs one texture and can be repainted
+  // only when the displayed value actually changes.
+  //
+  // Placed at z=+1.05, behind the 1.62 base plate and still on the 2.6-deep
+  // bench, and tilted back slightly so it faces a camera that sits above eye
+  // level rather than staring at the ceiling.
+  const vCanvas = document.createElement('canvas');
+  vCanvas.width = 256; vCanvas.height = 128;
+  const vCtx = vCanvas.getContext('2d');
+  const vTex = new THREE.CanvasTexture(vCanvas);
+  vTex.minFilter = THREE.LinearFilter;
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.62, 0.31),
+    new THREE.MeshBasicMaterial({ map: vTex, toneMapped: false })
+  );
+  // Faces -z, towards the front of the bench.
+  //
+  // It faced +z on the reasoning that the default camera sits there, but the
+  // view this is actually watched from looks down the row from the front, so
+  // every screen was turned away and read as a black rectangle. Rotating by PI
+  // about Y turns the face forward; the tilt is then +0.22 rather than -0.22,
+  // because the sign of the lean flips with the panel.
+  // Raised so the specimen does not stand in front of its own readout.
+  //
+  // At y=-0.30 the screen sat below the fly's body centre and behind it, so
+  // from the front the fly occluded the digits. Lifting it clear puts the
+  // number above the specimen, which is also how a rack-mounted meter would
+  // actually sit: the equipment reads out above the thing it is wired to.
+  if (isOperator) {
+    // The operator's reads FLAT, face up on the bench.
+    //
+    // It is not a specimen being measured from across the room, it is the one
+    // at the console, so its readout lies in front of it like an instrument on
+    // a desk rather than standing up on a post. Laid down it also stops
+    // blocking the row of five behind it, which a raised panel at this
+    // position would do from every useful angle.
+    screen.position.set(0, -0.735, -0.62);
+    screen.rotation.x = -Math.PI / 2;
+    screen.rotation.z = Math.PI;
+  } else {
+    screen.position.set(0, 0.42, 1.05);
+    screen.rotation.y = Math.PI;
+    screen.rotation.x = 0.16;
+  }
+  g.add(screen);
+
+  // A bezel, so the screen reads as a panel meter and not a floating decal.
+  const bezel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.70, 0.39, 0.05),
+    new THREE.MeshStandardMaterial({
+      color: '#15181d', roughness: 0.55, metalness: 0.6,
+    })
+  );
+  // Behind the screen from the new viewing side, so the bezel frames it
+  // instead of hiding it.
+  if (isOperator) {
+    bezel.position.set(0, -0.755, -0.62);
+    bezel.rotation.x = -Math.PI / 2;
+  } else {
+    bezel.position.set(0, 0.42, 1.08);
+    bezel.rotation.x = 0.16;
+  }
+  bezel.castShadow = true; bezel.receiveShadow = true;
+  g.add(bezel);
+
+  // A post down to the bench, because a meter hanging in mid air is the one
+  // thing this scene has spent a long time getting rid of.
+  // Runs from the base plate face (local -0.745) up to the screen bottom
+  // (0.27), so 1.015 tall centred at -0.238. Sized from those two numbers
+  // rather than guessed: a 1.0 post centred at -0.09 left a 0.15 gap above
+  // the plate and the stand floated.
+  if (!isOperator) {
+    // The post stands on the BENCH, not on the plate.
+    //
+    // It was sized to reach the base plate face at local -0.745, but it sits
+    // at z=1.09 while the plate only spans z -0.81 to 0.81. So it stopped
+    // 0.28 beyond the plate's edge, at the plate's height, hanging 0.045 clear
+    // of the bench below it with nothing underneath.
+    //
+    // The bench surface is BENCH_TOP in world terms, which is local -0.79 for
+    // a chamber group, so the post runs from there to the screen bottom at
+    // 0.27: 1.06 tall, centred at -0.26.
+    const stalk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.03, 1.06, 10),
+      new THREE.MeshStandardMaterial({
+        color: '#20242b', roughness: 0.5, metalness: 0.7,
+      })
+    );
+    stalk.position.set(0, -0.26, 1.09);
+    stalk.castShadow = true;
+    g.add(stalk);
+
+    // A foot, so the post is bolted down rather than balanced.
+    const foot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.075, 0.085, 0.03, 14),
+      new THREE.MeshStandardMaterial({
+        color: '#22262d', roughness: 0.45, metalness: 0.7,
+      })
+    );
+    foot.position.set(0, -0.775, 1.09);
+    foot.castShadow = true; foot.receiveShadow = true;
+    g.add(foot);
+  }
+
+  // A base plate under each cage: the cage is mounted equipment, not a
+  // floating box.
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(1.62, 0.09, 1.62),
+    new THREE.MeshStandardMaterial({
+      color: '#2b3038', roughness: 0.4, metalness: 0.65,
+    })
+  );
+  base.position.y = -0.79;
+  base.userData.halfWidth = 0.81;   // 1.62 square
+  base.userData.topLocal = -0.79 + 0.09 / 2;
+  base.castShadow = true; base.receiveShadow = true;
+  g.add(base);
+
+  // Stand ON the bench, not above it. The base plate sits at local -0.79, so
+  // the group rises by exactly that much for the plate to meet the surface.
+  // This was 0.3, which left every platform floating 0.56 clear and let the
+  // wires pass through the gap.
+  g.position.y = BENCH_TOP + 0.79;
+  scene.add(g);
+  return { group: g, core, glass, lamp, edges, isOperator,
+           pinHot, pinShaft, pinHead, base,
+           vCtx, vTex, screen, _vShown: -1 };
+}
+
+for (let i = 0; i < CH; i++) {
+  chambers.push(makeChamber((i - (CH - 1) / 2) * SPACING, false));
+}
+// The operator sits outside the row, behind it. Not above, not on a throne.
+const operator = makeChamber(0, true);
+operator.group.position.set(0, BENCH_TOP + 0.79, -3.6);
+operator.group.scale.setScalar(0.92);
+// Turned towards the five. It still receives nothing from them; facing the
+// work is not the same as seeing it.
+operator.group.rotation.y = Math.PI;
+
+// Two lamps under the operator, one per half of its loop. Underlighting is
+// used rather than tinting the body, for the same reason the chambers are no
+// longer tinted: the fly keeps its own colour and the apparatus around it
+// carries the signal.
+//
+// They are placed low and close so the light stays on the operator and does
+// not wash across the five. What is done TO the operator should not look like
+// it is happening to everything.
+// Tight underlighting, not a floodlight.
+//
+// These ran at a 2.6 unit range and up to 3.4 intensity, which is most of the
+// operator's bench, so a dopamine hit threw green across the bench, the labels
+// and the fly with no visible source. That is the phantom glow: a lamp big
+// enough to light a room, hidden under a body.
+//
+// 0.85 keeps the light on the underside of the specimen it belongs to, which
+// is what underlighting is meant to do, and leaves the two named lamps beside
+// it to say the same thing legibly.
+// The pool under the operator is deliberate.
+//
+// This lamp sits below the body and throws its light down onto the base
+// plate, so a dopamine hit pools green under the specimen. That was an
+// accident of placement at first and it is kept on purpose: the reward is the
+// one thing in the scene with no apparatus, no wire and no housing, so a glow
+// with no visible fitting is the right shape for it.
+operator.rewardLamp = new THREE.PointLight('#48c46e', 0, 0.85, 2.4);
+operator.rewardLamp.position.set(0, -0.62, 0.34);
+operator.group.add(operator.rewardLamp);
+operator.punishLamp = new THREE.PointLight('#ff4a22', 0, 0.85, 2.4);
+operator.punishLamp.position.set(0, -0.62, -0.34);
+operator.group.add(operator.punishLamp);
+
+// -------------------------------------------------------------- the console
+//
+// One wire out of the operator's neck connective, into a five-LED panel, and
+// five wires out of the panel to the five pins. The chain is physically
+// traceable: brain, tap, junction, pin, fly.
+//
+// This replaces a row of buttons the fly appeared to press. Nothing was
+// pressing them, and a viewer who knows the embodied projects would rightly
+// ask what was. A wire needs no leg. It is also what the simulation actually
+// does: five blocks of descending neurons are read out and the readout drives
+// the heat. The fly is wired into the machine rather than operating it.
+//
+// The tap is at the neck connective because that is where the descending
+// neurons leave the brain. The model has named head and thorax nodes, so this
+// is the real location rather than a guess.
+//
+// At most TWO LEDs are lit at once. That is the grip, and it is not a visual
+// choice: measured across all 30,000 steps of the recorded run, exactly two
+// buttons are held at every single step.
+const PANEL_Z = -1.8;
+// Chassis is 0.16 tall and centred on the group, so the group sits half that
+// above the surface for the panel to rest on the bench rather than hover.
+const PANEL_Y = BENCH_TOP + 0.08;
+const leds = [];
+
+// A bench for the console, because it was standing on nothing.
+//
+// The main bench spans z -1.30 to 1.30 and the operator's spans -4.90 to
+// -2.30, so a panel at z=-1.8 sits in the gap between them, half a unit above
+// bare floor. It is the same slab as the other two, at the same height, so
+// the three read as one run of equipment rather than three separate props.
+const panelBench = new THREE.Mesh(
+  new THREE.BoxGeometry(3.0, BENCH_H, 1.5),
+  new THREE.MeshStandardMaterial({
+    color: '#232830', roughness: 0.55, metalness: 0.35,
+  })
+);
+panelBench.position.set(0, BENCH_TOP - BENCH_H / 2, PANEL_Z);
+panelBench.castShadow = true; panelBench.receiveShadow = true;
+scene.add(panelBench);
+
+const panelGroup = new THREE.Group();
+panelGroup.position.set(0, PANEL_Y, PANEL_Z);
+scene.add(panelGroup);
+
+// The chassis. Low and wide, equipment on a bench rather than a floating UI.
+const chassis = new THREE.Mesh(
+  new THREE.BoxGeometry(2.3, 0.16, 0.56),
+  new THREE.MeshStandardMaterial({
+    color: '#1d2027', roughness: 0.5, metalness: 0.7,
+  })
+);
+chassis.castShadow = true; chassis.receiveShadow = true;
+panelGroup.add(chassis);
+
+for (let i = 0; i < CH; i++) {
+  const lx = (i - (CH - 1) / 2) * 0.42;
+
+  // A recessed housing, so an unlit LED still reads as a socket rather than
+  // vanishing into the chassis.
+  const socket = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.072, 0.072, 0.03, 16),
+    new THREE.MeshStandardMaterial({
+      color: '#0d0f13', roughness: 0.8, metalness: 0.3,
+    })
+  );
+  socket.position.set(lx, 0.082, 0);
+  socket.receiveShadow = true;
+  panelGroup.add(socket);
+
+  const led = new THREE.Mesh(
+    new THREE.SphereGeometry(0.055, 16, 12),
+    new THREE.MeshStandardMaterial({
+      color: '#2a1410', roughness: 0.25, metalness: 0.1,
+      emissive: new THREE.Color('#ff3b10'), emissiveIntensity: 0,
+    })
+  );
+  led.position.set(lx, 0.105, 0);
+  // Casts, so a lit LED sits in its socket rather than hovering over it. It
+  // does not receive: a shadow falling across a light that is meant to be on
+  // reads as a dead bulb.
+  led.castShadow = true;
+  panelGroup.add(led);
+
+  // A small lamp per LED so a lit one spills onto the chassis around it.
+  const glow = new THREE.PointLight('#ff4a1c', 0, 1.1, 2.2);
+  glow.position.set(lx, 0.16, 0);
+  panelGroup.add(glow);
+
+  leds.push({ led, glow, lx });
+}
+
+// ---- the wires
+//
+// Curves rather than straight lines, so they hang like cable instead of
+// reading as a diagram. TubeGeometry is built once per wire; only the
+// material changes per frame.
+function wire(points, colour, radius) {
+  // One continuous curve through every point, not a chain of short tubes.
+  //
+  // Each cable used to be two separate TubeGeometries meeting at the plate
+  // edge. Two tubes that share an endpoint do not share a tangent, so the
+  // join showed as a hard corner however finely each half was subdivided.
+  // A single curve through all the points has a continuous tangent by
+  // construction, which is what makes it read as one cable.
+  //
+  // 'catmullrom' with a low tension rather than the default 'centripetal'.
+  // Centripetal avoids cusps when control points bunch up, but these are
+  // spaced along a hanging run and the uniform form gives a rounder, slacker
+  // line through them.
+  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.28);
+  const mesh = new THREE.Mesh(
+    // Segment count scales with length so a long span is not coarser than a
+    // short one. Eight radial segments rather than seven: at this thickness
+    // the silhouette is what shows, and an odd count leaves a flat facet
+    // facing the camera.
+    new THREE.TubeGeometry(
+      curve,
+      Math.max(36, Math.round(curve.getLength() * 34)),
+      radius === undefined ? 0.016 : radius,
+      8, false
+    ),
+    new THREE.MeshStandardMaterial({
+      color: colour, roughness: 0.62, metalness: 0.35,
+      emissive: new THREE.Color('#ff3b10'), emissiveIntensity: 0,
+    })
+  );
+  // A cable lying on a bench needs its own contact shadow or it reads as
+  // painted on. At 8.7 texels across it is now wide enough to cast one.
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
+}
+
+// A hanging run between two points, as a set of control points rather than a
+// single midpoint. A real cable does not sag as one symmetric arc: it leaves
+// its anchor almost horizontally, falls through the middle, and comes back up
+// into the far anchor. Three interior points give that shape; one gives a V.
+function hang(from, to, sag, floorY) {
+  // The sag is limited by the room under the lower anchor, not chosen freely.
+  //
+  // A requested sag deeper than that space gets clamped at every interior
+  // point, and a clamp that catches every point does not make a shallower
+  // curve, it makes a flat bar with a corner at each end: exactly the sharp
+  // angle this is meant to avoid. Measured here, a sag of 0.42 against 0.033
+  // of headroom clamped all three points to the same height.
+  //
+  // Fitting the sag to the space keeps the curve a curve. The 0.8 leaves the
+  // deepest point just clear of the floor rather than resting on it.
+  let s = sag;
+  if (floorY !== undefined) {
+    s = Math.min(sag, Math.max(0, (Math.min(from.y, to.y) - floorY) * 0.8));
+  }
+  const pts = [from.clone()];
+  for (const t of [0.2, 0.4, 0.6, 0.8]) {
+    const q = from.clone().lerp(to, t);
+    // sin gives the deepest point in the middle and eases off at both ends,
+    // so the curve meets each anchor smoothly instead of arriving at an angle.
+    q.y -= s * Math.sin(Math.PI * t);
+    pts.push(q);
+  }
+  pts.push(to.clone());
+  return pts;
+}
+
+// Head wire: the operator's neck connective to the back of the panel. One
+// wire, not five. Five blocks do leave the brain, but five cables from a head
+// plus five from the panel reads as tangle; the panel is where the one tap is
+// split five ways, which is legible and still true to the readout.
+const opHead = new THREE.Vector3();
+{
+  const h = operator.core.getObjectByName('head');
+  if (h) {
+    h.getWorldPosition(opHead);
+  } else {
+    operator.group.getWorldPosition(opHead);
+    opHead.y += 0.1;
+  }
+}
+const headWire = wire(
+  hang(
+    opHead.clone(),
+    new THREE.Vector3(0, PANEL_Y + 0.05, PANEL_Z - 0.28),
+    0.30, BENCH_TOP + 0.03
+  ),
+  '#3a3f49', 0.018
+);
+
+// Five wires out to the pins, one per chamber, in chamber order.
+//
+// Each one terminates at the BASE OF THE PIN, taken from the pin's own world
+// position rather than an offset from the group. The previous version used
+// `group.y - 0.55` against a pin whose base is at local -0.79, so every wire
+// stopped 0.24 short and hung in the air near the thing it was supposed to
+// be connected to.
+const chamberWires = [];
+for (let i = 0; i < CH; i++) {
+  const c = chambers[i];
+  const pinPos = new THREE.Vector3();
+  c.pinShaft.getWorldPosition(pinPos);
+
+  // Climb ONTO the base plate, do not cut through it.
+  //
+  // The plate is 1.62 square and 0.09 thick, so it occupies 0.81 in every
+  // direction around the pin. A cable run straight to the pin at bench height
+  // spends its last 0.81 units inside that slab, which is what showed as the
+  // wire phasing through the squares under each fly.
+  //
+  // The run is therefore in two parts: a hanging span from the panel to the
+  // near edge of the plate, then a short length lying on the plate's surface
+  // up to the pin, the way a cable actually reaches a piece of mounted
+  // equipment.
+  const plateTop = new THREE.Vector3();
+  c.base.getWorldPosition(plateTop);
+  plateTop.y += 0.09 / 2 + 0.018;          // just clear of the plate face
+  const half = c.base.userData.halfWidth;
+
+  // The edge the cable arrives at, on the side facing the panel.
+  const edge = new THREE.Vector3(
+    pinPos.x, plateTop.y, pinPos.z + (PANEL_Z < pinPos.z ? -half : half)
+  );
+
+  // ONE cable per chamber, from the panel to the foot of the pin.
+  //
+  // The hanging span and the length lying on the plate used to be two
+  // separate tubes meeting at the plate edge. They shared an endpoint but not
+  // a tangent, so the join read as a sharp break in the middle of what should
+  // be a single cable. Both parts are now control points on one curve, so the
+  // cable flattens out as it reaches the plate instead of hinging there.
+  const pts = hang(
+    new THREE.Vector3(leds[i].lx, PANEL_Y + 0.05, PANEL_Z + 0.28),
+    edge, 0.42, BENCH_TOP + 0.03
+  );
+  // Carry on across the plate. A point just inside the edge keeps the curve
+  // flat once it has landed rather than letting it arc up to the pin.
+  const inset = edge.clone().lerp(
+    new THREE.Vector3(pinPos.x, plateTop.y, pinPos.z), 0.45
+  );
+  pts.push(inset, new THREE.Vector3(pinPos.x, plateTop.y, pinPos.z));
+  chamberWires.push([wire(pts, '#333842')]);
+}
+
+// ------------------------------------------------- the operator's own lamps
+//
+// Two lamps, one either side of the operator, each with its name written on
+// the bench beneath it. The operator's state was only ever stated in HTML, so
+// the 3D view could not stand on its own in a clip.
+//
+// The two sides are not the same mechanism, and the labels say so. Green is
+// DOPAMINE: reward is delivered into 340 real dopaminergic neurons, PAM 316,
+// PPL1 16 and PPL2 8, present and measured in the connectome. Red is HEAT:
+// punishment arrives through the operator's own TRN_VP thermoreceptors.
+//
+// That asymmetry is deliberate and worth reading off the bench. The five are
+// stimulated electrically and the one at the console is burned, because they
+// are different acts.
+//
+// Placed in WORLD space, not parented to the operator, whose group is rotated
+// by PI to face the chambers: anything added to it has its axes flipped and
+// the two sides would swap.
+const statusLeds = [];
+function groundLabel(text, colour, x, z) {
+  const cv = document.createElement('canvas');
+  cv.width = 384; cv.height = 80;
+  const g2 = cv.getContext('2d');
+  g2.fillStyle = 'rgba(0,0,0,0)';
+  g2.fillRect(0, 0, 384, 80);
+  // Plain text, not glowing. These are labels stencilled on a bench, and a
+  // label that glows reads as another indicator, which is exactly what it is
+  // not: the lamp beside it is the indicator and the writing only names it.
+  // Glowing text also competed with the lamp it was labelling.
+  //
+  // toneMapped stays false so the colour survives ACES, but nothing here
+  // emits: the ink is a muted version of the lamp's colour so the pairing is
+  // still obvious without the writing lighting up.
+  g2.font = 'bold 50px ui-monospace, Consolas, monospace';
+  g2.textAlign = 'center';
+  g2.textBaseline = 'middle';
+  g2.fillStyle = colour;
+  g2.fillText(text, 192, 42);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.minFilter = THREE.LinearFilter;
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.02, 0.213),
+    new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, toneMapped: false, depthWrite: false,
+    })
+  );
+  // Flat on the bench, reading toward the front of the scene.
+  m.rotation.x = -Math.PI / 2;
+  m.rotation.z = Math.PI;
+  m.position.set(x, BENCH_TOP + 0.004, z);
+  scene.add(m);
+  return m;
+}
+
+for (const spec of [
+  { x: -0.95, colour: '#3fe07a', ink: '#4a7d5e', key: 'reward', label: 'DOPAMINE' },
+  { x:  0.95, colour: '#ff4a22', ink: '#8a4a38', key: 'punish', label: 'HEAT' },
+]) {
+  const unit = new THREE.Group();
+  unit.position.set(spec.x, BENCH_TOP, -3.6);
+  scene.add(unit);
+
+  const housing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.13, 0.08, 18),
+    new THREE.MeshStandardMaterial({
+      color: '#1d2027', roughness: 0.5, metalness: 0.7,
+    })
+  );
+  housing.position.y = 0.04;
+  housing.castShadow = true; housing.receiveShadow = true;
+  unit.add(housing);
+
+  const led = new THREE.Mesh(
+    new THREE.SphereGeometry(0.072, 18, 14),
+    new THREE.MeshStandardMaterial({
+      color: '#15161a', roughness: 0.25, metalness: 0.1,
+      emissive: new THREE.Color(spec.colour), emissiveIntensity: 0,
+    })
+  );
+  led.position.y = 0.115;
+  led.castShadow = true;
+  unit.add(led);
+
+  // Tight, and it stays tight.
+  //
+  // At a 1.3 unit range this lit most of the operator's bench, so a dopamine
+  // hit washed green across the bench, the labels and the fly. That read as a
+  // phantom glow with no source, because the source is a 0.13 wide housing and
+  // nothing that small throws light that far. 0.34 keeps the spill on the
+  // lamp's own fitting, which is what makes it look like a lamp.
+  const glow = new THREE.PointLight(spec.colour, 0, 0.34, 2.6);
+  glow.position.y = 0.14;
+  unit.add(glow);
+
+  // The name on the bench, just in front of its own lamp.
+  groundLabel(spec.label, spec.ink, spec.x, -3.6 + 0.42);
+
+  statusLeds.push({ led, glow, key: spec.key });
+}
+
+// Panel handles, looked up once.// Panel handles, looked up once.// Panel handles, looked up once. Missing nodes leave UI.rf undefined and the
+// frame loop skips the panel rather than throwing every frame.
+const UI = {
+  rf: document.querySelector('#rf'), pf: document.querySelector('#pf'),
+  rv: document.querySelector('#rv'), pv: document.querySelector('#pv'),
+  dcap: document.querySelector('#dcap'),
+};
+
+// -------------------------------------------------------------- camera move
+//
+// A scripted path, so a take is one keypress instead of an orbit performed by
+// hand while recording. Every take is then identical, which matters because
+// the clip is the deliverable and a shot that cannot be repeated cannot be
+// improved.
+//
+// Free orbit is untouched. The path runs on its own key, takes the controls
+// for its duration, and hands them back where it finished so the view can be
+// adjusted from there rather than snapping.
+//
+// Positions are in the scene's real coordinates: the chamber row spans x
+// -3.44 to 3.44 at z=0, the operator sits at z=-3.6, the console at z=-1.8,
+// and a fly's body centre is at y=0.061.
+const SHOT = [
+  // Wide and high, the whole bench in frame. The room reads first, the
+  // specimens second.
+  { t: 0.0,  pos: [0.0, 4.6, 15.5], look: [0, 0.2, -1.2], fov: 40 },
+  // Drift in and down. Still wide enough to hold all five.
+  { t: 0.22, pos: [-2.2, 3.0, 10.0], look: [-0.6, 0.1, -1.0], fov: 38 },
+  // Down to bench height, close to the row. The pins and cables become
+  // legible here, which is the moment the apparatus explains itself.
+  { t: 0.42, pos: [-3.6, 0.55, 4.6], look: [-1.4, 0.0, -0.9], fov: 34 },
+  // Track along the row, past the flies, following the cable run back.
+  { t: 0.62, pos: [1.2, 0.42, 3.4], look: [0.4, -0.15, -1.6], fov: 32 },
+  // Rise slightly and turn onto the operator, the thing doing it.
+  { t: 0.82, pos: [2.6, 1.15, -0.4], look: [0.2, -0.1, -3.4], fov: 35 },
+  // Pull back out to a composed wide, a little off axis so it does not
+  // simply return to where it started.
+  { t: 1.0,  pos: [3.4, 3.2, 9.2], look: [0, 0.1, -1.2], fov: 38 },
+];
+const SHOT_SECONDS = 26;
+
+const shot = { on: false, t0: 0 };
+
+// Catmull-Rom through the keyframes, so the move has no corners. Sampling the
+// position and the look-at on separate curves keeps the turn independent of
+// the travel, which is what stops the camera swinging as it passes a subject.
+const shotPos = new THREE.CatmullRomCurve3(
+  SHOT.map(k => new THREE.Vector3(...k.pos)), false, 'catmullrom', 0.5
+);
+const shotLook = new THREE.CatmullRomCurve3(
+  SHOT.map(k => new THREE.Vector3(...k.look)), false, 'catmullrom', 0.5
+);
+
+// Ease in and out. A linear pass starts and stops abruptly, which reads as a
+// machine move; this reads as a camera operator.
+function easeInOut(x) {
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+function startShot() {
+  shot.on = true;
+  shot.t0 = performance.now();
+  controls.enabled = false;
+  return 'shot running';
+}
+
+function stopShot() {
+  shot.on = false;
+  controls.enabled = true;
+  // Hand the orbit back where the camera actually is, so releasing control
+  // does not snap the view somewhere else.
+  const look = shotLook.getPoint(1);
+  controls.target.copy(look);
+  controls.update();
+  return 'shot done';
+}
+
+function updateShot() {
+  if (!shot.on) return;
+  const raw = (performance.now() - shot.t0) / (SHOT_SECONDS * 1000);
+  if (raw >= 1) { stopShot(); return; }
+  const u = easeInOut(raw);
+  camera.position.copy(shotPos.getPoint(u));
+  camera.lookAt(shotLook.getPoint(u));
+  // Focal length rides the keyframes too. Tightening as the camera closes in
+  // compresses the row and makes the five read as a line of specimens rather
+  // than as five separate objects.
+  let fov = SHOT[0].fov;
+  for (let i = 1; i < SHOT.length; i++) {
+    if (u <= SHOT[i].t) {
+      const a = SHOT[i - 1], b = SHOT[i];
+      const k = (u - a.t) / Math.max(b.t - a.t, 1e-6);
+      fov = a.fov + (b.fov - a.fov) * k;
+      break;
+    }
+    fov = SHOT[i].fov;
+  }
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+}
+
+// ------------------------------------------------------------- readout
+const rows = document.querySelector('#rows');
+const labels = [];
+for (let i = 0; i < CH; i++) {
+  const el = document.createElement('div');
+  el.className = 'row';
+  el.innerHTML = `<span class="k">chamber ${i}</span><span class="v">0%</span>`;
+  rows.appendChild(el);
+  labels.push(el.querySelector('.v'));
+}
+const opRow = document.createElement('div');
+opRow.className = 'row';
+opRow.style.marginTop = '6px';
+opRow.innerHTML = `<span class="k">operator</span><span class="v" style="color:#5590d8">at the buttons</span>`;
+rows.appendChild(opRow);
+
+const timeRow = document.createElement('div');
+timeRow.className = 'row';
+timeRow.style.marginTop = '10px';
+timeRow.innerHTML = `<span class="k">t</span><span class="v" id="tv">0 ms</span>`;
+rows.appendChild(timeRow);
+const tv = document.querySelector('#tv');
+
+// -------------------------------------------------------------- traces
+// A firing-rate trace per instance, beside the chambers. This is the same
+// array the 2D figures plot; the scene shows what is done to each fly and the
+// traces show the brain responding to it.
+const TRACE_W = 190, TRACE_H = 26, TRACE_SPAN = 240;  // frames of history
+const traceBox = document.querySelector('#traces');
+const traceCtx = [];
+for (let i = 0; i < 6; i++) {
+  const isOp = i === DATA.meta.operator;
+  const wrap = document.createElement('div');
+  wrap.className = 't';
+  const lab = document.createElement('div');
+  lab.className = 'lab';
+  lab.innerHTML = `<span>${isOp ? 'operator' : 'chamber ' + i}</span><span class="hz"></span>`;
+  if (isOp) { wrap.style.marginTop = '10px'; lab.style.color = '#4a6f9e'; }
+  const cv = document.createElement('canvas');
+  cv.width = TRACE_W * 2; cv.height = TRACE_H * 2;
+  cv.style.width = TRACE_W + 'px'; cv.style.height = TRACE_H + 'px';
+  wrap.append(lab, cv);
+  traceBox.appendChild(wrap);
+  const ctx = cv.getContext('2d');
+  ctx.scale(2, 2);
+  traceCtx.push({ ctx, hz: lab.querySelector('.hz'), isOp });
+}
+
+function drawTraces(f) {
+  const a = Math.max(0, f - TRACE_SPAN);
+  for (let i = 0; i < 6; i++) {
+    const { ctx, hz, isOp } = traceCtx[i];
+    ctx.clearRect(0, 0, TRACE_W, TRACE_H);
+    const h = isOp ? 0 : DATA.heat[f][i];
+
+    // Tint the panel by the chamber's heat, so the trace and the cage agree.
+    if (!isOp && h > 0.01) {
+      ramp(h, tmp);
+      ctx.fillStyle = `rgba(${(tmp.r*255)|0},${(tmp.g*255)|0},${(tmp.b*255)|0},${0.10 + h * 0.20})`;
+      ctx.fillRect(0, 0, TRACE_W, TRACE_H);
+    }
+
+    ctx.beginPath();
+    for (let k = a; k <= f; k++) {
+      const x = ((k - a) / TRACE_SPAN) * TRACE_W;
+      const y = TRACE_H - 1 - DATA.rates[k][i] * (TRACE_H - 2);
+      k === a ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = isOp ? '#6d9bd4' : (h > 0.5 ? '#ff7a45' : '#9aa0aa');
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    hz.textContent = Math.round(DATA.rates[f][i] * 100) + '';
+  }
+}
+
+// --------------------------------------------------------------- brains
+// Six brain tiles in the side dashboard, not floating in the scene. Each is a
+// fixed projection of the same 24,000 soma positions, so the six are directly
+// comparable: the same neuron sits at the same pixel in every tile.
+const BRAIN_W = 190, BRAIN_H = 118;
+const brainBox = document.querySelector('#brains');
+const brainTiles = [];
+
+// Project once. The cloud is centred and unit-scaled by the exporter; take the
+// XZ plane, which is the dorsal view, and flip Y so anterior reads upward.
+const PX = new Float32Array(BMETA.points), PY = new Float32Array(BMETA.points);
+{
+  let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+  for (let i = 0; i < BMETA.points; i++) {
+    const x = B_POS[i * 3], y = B_POS[i * 3 + 2];
+    PX[i] = x; PY[i] = y;
+    if (x < minx) minx = x; if (x > maxx) maxx = x;
+    if (y < miny) miny = y; if (y > maxy) maxy = y;
+  }
+  const sx = (BRAIN_W - 10) / (maxx - minx), sy = (BRAIN_H - 10) / (maxy - miny);
+  const sc = Math.min(sx, sy);
+  for (let i = 0; i < BMETA.points; i++) {
+    PX[i] = 5 + (PX[i] - minx) * sc + (BRAIN_W - 10 - (maxx - minx) * sc) / 2;
+    PY[i] = BRAIN_H - 5 - (PY[i] - miny) * sc;
+  }
+}
+
+for (let i = 0; i < 6; i++) {
+  const isOp = i === DATA.meta.operator;
+  const wrap = document.createElement('div');
+  wrap.className = 'b';
+  const lab = document.createElement('div');
+  lab.className = 'blab';
+  lab.textContent = isOp ? 'operator' : 'chamber ' + i;
+  if (isOp) lab.style.color = '#6d9bd4';
+  const cv = document.createElement('canvas');
+  cv.width = BRAIN_W * 2; cv.height = BRAIN_H * 2;
+  cv.style.width = BRAIN_W + 'px'; cv.style.height = BRAIN_H + 'px';
+  wrap.append(lab, cv);
+  brainBox.appendChild(wrap);
+  const ctx = cv.getContext('2d');
+  ctx.scale(2, 2);
+  brainTiles.push({ ctx, isOp });
+}
+
+// The resting cloud is the same every frame, so draw it once and reuse it.
+const restCanvas = document.createElement('canvas');
+restCanvas.width = BRAIN_W * 2; restCanvas.height = BRAIN_H * 2;
+{
+  const rc = restCanvas.getContext('2d');
+  rc.scale(2, 2);
+  rc.fillStyle = '#23252c';
+  for (let i = 0; i < BMETA.points; i++) rc.fillRect(PX[i], PY[i], 1, 1);
+}
+
+function drawBrains(f) {
+  const stride = BMETA.live;
+  for (let i = 0; i < 6; i++) {
+    const { ctx, isOp } = brainTiles[i];
+    ctx.clearRect(0, 0, BRAIN_W, BRAIN_H);
+    ctx.drawImage(restCanvas, 0, 0, BRAIN_W, BRAIN_H);
+
+    const off = (f * 6 + i) * stride;
+    for (let k = 0; k < stride; k++) {
+      const a = B_ACT[off + k] / 255;
+      if (a <= 0) continue;
+      const p = B_LIVE[k];
+      ctx.fillStyle = isOp
+        ? `rgba(110,170,255,${0.35 + a * 0.65})`
+        : `rgba(255,${(90 + a * 90) | 0},60,${0.35 + a * 0.65})`;
+      const r = 1 + a * 2;
+      ctx.fillRect(PX[p] - r / 2, PY[p] - r / 2, r, r);
+    }
+  }
+}
+
+// Peak amplitude at the electrode. The level is a fraction of this, so the
+// screens read in the simulation's own unit rather than in a percentage.
+// 8 mV is near the TOP of the useful range: measured, above 40 mV the response
+// saturates and a chamber at 25% becomes indistinguishable from one at 100%.
+const ELECTRODE_MV = 8.0;
+
+function drawVolts(c, mv, level, held) {
+  const x = c.vCtx;
+  x.fillStyle = '#07090c';
+  x.fillRect(0, 0, 256, 128);
+
+  // Hot chambers read hot. The digits carry the same colour language as the
+  // pins, so a glance across the row sorts the five without reading a number.
+  const col = level > 0.75 ? '#ff6a3a'
+            : level > 0.45 ? '#ffb02e'
+            : '#7fd4a8';
+
+  x.font = 'bold 62px ui-monospace, Consolas, monospace';
+  x.textAlign = 'right';
+  x.textBaseline = 'alphabetic';
+  x.fillStyle = col;
+  x.shadowColor = col;
+  x.shadowBlur = 18;
+  x.fillText(mv.toFixed(1), 186, 84);
+  x.shadowBlur = 0;
+
+  x.font = '26px ui-monospace, Consolas, monospace';
+  x.textAlign = 'left';
+  x.fillStyle = '#6a7078';
+  x.fillText('mV', 196, 84);
+
+  // A bar under the number, because a digit alone is hard to compare across
+  // five screens at a glance.
+  x.fillStyle = '#1b2026';
+  x.fillRect(22, 100, 212, 10);
+  x.fillStyle = col;
+  x.fillRect(22, 100, Math.max(2, 212 * level), 10);
+
+  // A lit marker while this chamber's button is held, so the screen says
+  // whether current is arriving now and not only how much.
+  x.fillStyle = held ? '#ff3b10' : '#232a31';
+  x.beginPath();
+  x.arc(34, 30, 9, 0, Math.PI * 2);
+  x.fill();
+  x.font = '20px ui-monospace, Consolas, monospace';
+  x.textAlign = 'left';
+  x.fillStyle = held ? '#ff8a66' : '#3c444c';
+  x.fillText(held ? 'STIM' : 'IDLE', 52, 38);
+
+  c.vTex.needsUpdate = true;
+}
+
+// ------------------------------------------------------------- playback
+// Heat ramp. The first version lerped one cold colour to one hot one, which
+// put deep red at 15% and orange at 100%: the coldest chambers looked the most
+// alarming. A real thermal ramp runs dark -> red -> orange -> white.
+const RAMP = [
+  { t: 0.00, c: new THREE.Color('#171012') },
+  { t: 0.30, c: new THREE.Color('#4a1109') },
+  { t: 0.60, c: new THREE.Color('#9e2408') },
+  { t: 0.85, c: new THREE.Color('#d83c0b') },
+  { t: 1.00, c: new THREE.Color('#ff5a18') },
+];
+const tmp = new THREE.Color();
+function ramp(h, out) {
+  h = Math.max(0, Math.min(1, h));
+  for (let i = 1; i < RAMP.length; i++) {
+    if (h <= RAMP[i].t) {
+      const a = RAMP[i - 1], b = RAMP[i];
+      return out.copy(a.c).lerp(b.c, (h - a.t) / (b.t - a.t));
+    }
+  }
+  return out.copy(RAMP[RAMP.length - 1].c);
+}
+let frame = 0;
+let loopStart = performance.now();
+
+let time = 0;
+function apply(f) {
+  const heat = DATA.heat[f];
+  const rates = DATA.rates[f];
+
+  for (let i = 0; i < CH; i++) {
+    const h = heat[i];
+    const c = chambers[i];
+
+    // The FLY does not change colour. The pin does.
+    //
+    // The body used to take the full heat ramp, so a hot chamber held a red
+    // fly and a cold one held a grey fly. That reads as the animal being made
+    // of heat rather than having heat done to it, and it throws away the one
+    // thing the mount established: the apparatus is the hot thing, the fly is
+    // just what it is attached to.
+    //
+    // The body now keeps its own dark chitin throughout and is only LIT by
+    // the pin and the cage lamp, the way a real object near something hot is.
+    // A faint emissive floor stops the silhouette going black at low heat.
+    ramp(h, tmp);
+    c.core.material.emissiveIntensity = 0.05 + h * 0.10;
+    c.lamp.color.copy(tmp);
+
+    // Hotter chambers twitch harder. This is an authored visual gain on a
+    // real signal: heat moves motor-neuron firing by about 3% (measured), and
+    // that is stated in the README rather than passed off as raw output.
+    const tw = h * h;
+    // CONVULSION, not writhing.
+    //
+    // A smooth sine reads as an animal moving itself. Current forced through
+    // motor neurons does not look like that: it is sharp, it does not ease,
+    // and every limb is driven by the same discharge rather than by the
+    // animal's own coordination.
+    //
+    // Three things make the difference. The waveform is folded so it snaps
+    // rather than swings; several frequencies beat against each other so the
+    // rhythm never resolves; and the limbs share a common term, because they
+    // are being driven by one current and not by six independent decisions.
+    //
+    // This is an authored visual on an authored intervention, and the README
+    // says so: the bodies move because current is injected into 708 motor
+    // neurons directly, which is not an escape reflex.
+    const jolt = Math.sin(time * (34 + tw * 52)) * Math.sin(time * 11.3 + 1.7);
+    const seize = Math.pow(Math.abs(jolt), 0.45) * Math.sign(jolt);
+    for (let k = 0; k < c.core.userData.legs.length; k++) {
+      const L = c.core.userData.legs[k];
+      // The constant term is the hang: the legs are unloaded, because there is
+      // no longer a floor under them.
+      const own = Math.sin(time * (7 + tw * 19) + k * 2.3);
+      L.mesh.rotation.z = L.base.z + L.sx * 0.06
+        + (seize * 0.62 + own * 0.38) * (0.012 + tw * 0.40);
+      L.mesh.rotation.x = L.base.x
+        + (seize * 0.5 + Math.cos(time * (6 + tw * 15) + k) * 0.5)
+          * (0.008 + tw * 0.2);
+    }
+    // The whole body jerks against the pin, not just the limbs. A fly that
+    // convulses only from the knees down reads as a puppet.
+    //
+    // Kept small on purpose. The pin runs through the thorax, so the body
+    // cannot go anywhere: it can only strain against the thing holding it.
+    // A large rotation would read as the fly coming loose and would undo what
+    // the mount establishes.
+    c.core.rotation.z = seize * tw * 0.075;
+    c.core.rotation.x = Math.sin(time * 27 + 0.9) * tw * 0.045;
+    // Beat about Z, the hinge. wing_left/right are parent transforms whose own
+    // rotation already places the wing along the body; writing rotation.x
+    // every frame overwrote that placement and folded them flat into the
+    // thorax, which is why they vanished while still being found and shaded.
+    // Offset from the recorded base instead of replacing it.
+    // Both wings beat TOGETHER, in phase. The previous version multiplied the
+    // beat by w.sx to mirror it, but the two wing nodes already carry mirrored
+    // rest orientations from the scan, so the extra sign flip cancelled on one
+    // side and doubled on the other: one wing rose while the other fell, and
+    // they held a straight line through the body.
+    for (const w of c.core.userData.wings) {
+      // The wings seize on the same current as the legs. A smooth beat reads
+      // as flight, which is the one thing a pinned fly being shocked is not
+      // doing; sharing the jolt term makes them part of the convulsion.
+      const beat = (Math.sin(time * (7 + tw * 40)) * 0.45 + seize * 0.55)
+        * (0.02 + tw * 0.44);
+      w.pivot.rotation.set(w.base.x, w.base.y, w.base.z + beat);
+    }
+    // Firing rate makes the core breathe, so a chamber is never quite still.
+    // Multiply the fitted scale, do not replace it. Writing an absolute value
+    // here reset every fly to about 1.0 each frame, so changing the fit above
+    // had no visible effect at all.
+    c.core.scale.setScalar(c.core.userData.baseScale * (1 + rates[i] * 0.045));
+
+    // The pin is the heat source, so it leads the body rather than following
+    // it. Rising sharply at first and then flattening keeps a low heat still
+    // clearly visible, and means the difference between 80% and 100% still
+    // reads instead of both saturating to white.
+    // The pin now carries the whole signal, since the body no longer does.
+    //
+    // Colour shifts with temperature the way heated steel does: dull red at
+    // the bottom of the range, orange through the middle, and toward white at
+    // the top. Intensity alone would make a cold pin merely dim, which is
+    // hard to read against a dark cage; a colour change is legible at a
+    // glance even when the pin is small on screen.
+    c.pinHot.material.emissiveIntensity = 0.35 + Math.pow(h, 0.65) * 6.5;
+    c.pinHot.material.emissive.setRGB(
+      0.55 + h * 0.45,
+      0.05 + h * h * 0.62,
+      0.02 + h * h * h * 0.45
+    );
+    // The shaft conducts outward from the body, falling off along its length.
+    c.pinShaft.material.emissive.setRGB(h * 0.5, h * h * 0.16, 0);
+
+    c.lamp.intensity = h * 1.9;
+
+    labels[i].textContent = Math.round(h * 100) + '%';
+    labels[i].style.color = h > 0.5 ? '#ff7a55' : (h > 0.2 ? '#c9a227' : '#6e6e74');
+  }
+
+  // The console. `held` is a bitmask, one byte per frame, recorded from the
+  // simulation rather than derived here.
+  //
+  // NOT eased. The LEDs are allowed to stutter, because the stutter is real:
+  // measured on this run, 37 of 81 switch events happen closer together than
+  // a single frame at 30fps. Smoothing that away would hide the operator
+  // changing its mind faster than the eye can follow, which is the thing
+  // worth seeing. An LED is on or it is off.
+  const heldMask = DATA.held ? DATA.held[f] : 0;
+
+  // Repaint each voltage readout, but only when the displayed value changes.
+  //
+  // At 30fps across five chambers this would otherwise be 150 canvas repaints
+  // and 150 texture uploads per second for a number that changes far less
+  // often. Quantising to the displayed precision first means a repaint happens
+  // only when the digits would actually differ.
+  for (let i = 0; i < CH; i++) {
+    const c = chambers[i];
+    const key = Math.round(heat[i] * ELECTRODE_MV * 10) * 2 + ((heldMask >> i) & 1);
+    if (key === c._vShown) continue;
+    c._vShown = key;
+    drawVolts(c, heat[i] * ELECTRODE_MV, heat[i], (heldMask >> i) & 1);
+  }
+  for (let i = 0; i < CH; i++) {
+    const down = (heldMask >> i) & 1;
+    const L = leds[i];
+    const h = heat[i];
+
+    if (down) {
+      // Lit, and brighter for the heat it is currently causing.
+      L.led.material.emissive.setRGB(1.0, 0.24 + h * 0.4, 0.06);
+      L.led.material.emissiveIntensity = 1.6 + h * 3.2;
+      L.glow.intensity = 0.5 + h * 1.5;
+    } else {
+      // Dark, and this is the half that matters.
+      //
+      // A lit LED means pressed, which means rising. So the three dark ones
+      // are the chambers being let go, and neglect is exactly what burns the
+      // operator: its punishment comes from the chambers it abandons, not the
+      // ones it holds. If dark simply meant "off", the piece would read as
+      // though the lit wires were the cruelty, which inverts the mechanism.
+      //
+      // A cold ember is left behind instead, deepening as the chamber falls.
+      // The colder the chamber, the more the socket carries.
+      const neglect = Math.max(0, 1 - h);
+      L.led.material.emissive.setRGB(0.10 + neglect * 0.16, 0.06, 0.20 + neglect * 0.42);
+      L.led.material.emissiveIntensity = 0.12 + neglect * 0.55;
+      L.glow.intensity = 0;
+    }
+
+    // The wire out to that chamber carries the same state. Barely visible
+    // pulses travel along it: a wire that only changed brightness would read
+    // as a painted line, and a travelling pulse says the signal is going
+    // somewhere. The pulse rate is authored and slow enough to read; the real
+    // latency is 20ms, which is 0.6 of a frame and cannot be shown honestly.
+    for (const w of chamberWires[i]) {
+      if (down) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 9 - i * 0.7);
+        w.material.emissive.setRGB(1.0, 0.26, 0.07);
+        w.material.emissiveIntensity = 0.30 + pulse * 0.42 + h * 0.5;
+      } else {
+        const neglect = Math.max(0, 1 - h);
+        w.material.emissive.setRGB(0.06, 0.04, 0.16);
+        w.material.emissiveIntensity = neglect * 0.30;
+      }
+    }
+  }
+
+  // The head wire carries whatever is leaving the brain at all, so it is lit
+  // whenever anything is held, which under a grip of two is always.
+  {
+    const pulse = 0.5 + 0.5 * Math.sin(time * 11);
+    headWire.material.emissive.setRGB(0.85, 0.42, 0.18);
+    headWire.material.emissiveIntensity = 0.18 + pulse * 0.26;
+  }
+
+  // ------------------------------------------------- the operator's own state
+  //
+  // The premise of the piece is that the thing at the buttons is not
+  // indifferent, and until now that was invisible: the operator looked like a
+  // fly sitting still while five others cooked. Both halves of its loop are
+  // shown, because either alone misleads. Reward alone makes it look rewarded,
+  // punishment alone makes it look like a sixth victim, and it is both at once.
+  //
+  // Values are real, recorded per step from the compulsion loop and normalised
+  // on export. Nothing here is invented for the visual.
+  const rw = DATA.reward ? DATA.reward[f] : 0;
+  const pn = DATA.punish ? DATA.punish[f] : 0;
+
+  if (UI.rf) {
+    UI.rf.style.width = (rw * 100).toFixed(1) + '%';
+    UI.pf.style.width = (pn * 100).toFixed(1) + '%';
+    UI.rv.textContent = rw.toFixed(2);
+    UI.pv.textContent = pn.toFixed(2);
+    // Brighten the bar as it fills, so a glance reads intensity and not only
+    // length. A short bar at full brightness reads as urgent when it is not.
+    UI.rf.style.opacity = (0.45 + rw * 0.55).toFixed(2);
+    UI.pf.style.opacity = (0.45 + pn * 0.55).toFixed(2);
+    // One line of plain language, because two bars do not say which is
+    // winning and that is the whole question.
+    UI.dcap.textContent =
+      rw > 0.55 && pn > 0.55 ? 'paid and burned at once'
+      : rw > 0.55 ? 'a chamber reached full'
+      : pn > 0.55 ? 'chambers left to go cold'
+      : pn > rw ? 'falling behind'
+      : 'holding';
+  }
+
+  // The same two signals on the operator itself, so the 3D view stands alone
+  // without the panel. Green from below when it is paid, red when it is
+  // burned. Underlighting rather than tinting the body: the fly keeps its own
+  // colour here for the same reason the chambers do.
+  operator.rewardLamp.intensity = rw * 1.5;
+  operator.punishLamp.intensity = pn * 1.3;
+
+  // The two status LEDs beside it, which is the readable version of the same
+  // thing. The underlighting says the mood of the frame; these say the value.
+  // The two are driven differently, because they are different kinds of thing.
+  //
+  // Measured on this run: reward has a median of 0.000 and sits below 0.1 for
+  // 707 of 900 frames, because it fires when a chamber maxes and decays. It is
+  // an EVENT. Punishment has a median of 0.399 and drops below 0.1 for only 57
+  // frames, because it tracks ongoing pain. It is a CONDITION.
+  //
+  // Driving both the same way made the red LED read as permanently on, at 90%
+  // of frames above a third brightness, and a light that never changes carries
+  // no information. So reward gets a curve that makes its rare spikes bright,
+  // and punishment is rescaled against the band it actually occupies so its
+  // variation is visible instead of being crushed against the top.
+  for (const L of statusLeds) {
+    let lit;
+    if (L.key === 'reward') {
+      // Sharp: mostly dark, and unmistakable when it fires.
+      lit = Math.pow(rw, 0.55);
+    } else {
+      // Punishment lives roughly in 0.15..0.85. Mapping that band across the
+      // full range keeps a baseline glow, which is correct because the
+      // operator is nearly always being burned by something, while still
+      // letting the bad moments read as worse.
+      lit = Math.min(1, Math.max(0, (pn - 0.15) / 0.7));
+      lit = 0.12 + Math.pow(lit, 1.35) * 0.88;
+    }
+    L.led.material.emissiveIntensity = 0.06 + lit * 4.4;
+    L.glow.intensity = lit * 1.35;
+  }
+
+  // The operator is never heated by a chamber, so its own pin never glows with
+  // chamber heat. It is mounted on the same kind of pin as the five, which is
+  // the point: the thing at the buttons is held in place by the same apparatus
+  // as the things it is heating. What DOES reach its pin is its own
+  // punishment, delivered through its own thermoreceptors.
+  operator.pinHot.material.emissiveIntensity = 0.2 + Math.pow(pn, 0.7) * 4.0;
+  operator.pinHot.material.emissive.setRGB(
+    0.45 + pn * 0.5, 0.1 + pn * pn * 0.3, 0.35 - pn * 0.3
+  );
+
+  const opRate = rates[DATA.meta.operator];
+  // Lit by the room and by its own pin, not from within. The firing rate
+  // still drives the body scale below, which is the honest readout of it.
+  operator.core.material.emissiveIntensity = 0.05 + opRate * 0.12;
+  operator.core.scale.setScalar(operator.core.userData.baseScale * (1 + opRate * 0.045));
+  for (let k = 0; k < operator.core.userData.legs.length; k++) {
+    const L = operator.core.userData.legs[k];
+    // Hanging, not standing: a small downward set plus a slow drift, so the
+    // legs read as unloaded rather than bearing weight on a floor that is no
+    // longer under them.
+    L.mesh.rotation.z = L.base.z + L.sx * 0.06
+      + Math.sin(time * 5 + k * 1.7) * 0.015;
+  }
+  for (const w of operator.core.userData.wings) {
+    w.pivot.rotation.set(w.base.x, w.base.y,
+      w.base.z + Math.sin(time * 6) * 0.02);
+  }
+  operator.lamp.intensity = 0.5 + opRate * 1.6;
+
+  tv.textContent = Math.round(f / DATA.meta.frames * DATA.meta.simulated_ms) + ' ms';
+  drawTraces(f);
+  drawBrains(f);
+  updateAudio(f);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const elapsed = (performance.now() - loopStart) / 1000;
+  time = elapsed;
+  frame = Math.floor(elapsed * DATA.meta.fps) % DATA.meta.frames;
+  if (recorder) {
+    const t = (performance.now() - recStart) / 1000;
+    recT.textContent = t.toFixed(1);
+    // One full loop, then stop on its own.
+    if (t >= DATA.meta.frames / DATA.meta.fps) stopRec();
+  }
+  apply(frame);
+  // The shot drives the camera directly, so the orbit must not also write to
+  // it on the same frame; controls.enabled is false for the shot's duration
+  // and update() then only settles damping.
+  updateShot();
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+
+// Debug handle: inspect actual world transforms from the console.
+window.__amfly = {
+  chambers, operator, scene, camera, THREE,
+  // Camera work from the console, which is how the SHOT keyframes were
+  // found. `where()` prints the current position and target in the exact
+  // shape a keyframe takes, so a view can be framed by hand and pasted
+  // straight into SHOT.
+  shot: { start: startShot, stop: stopShot, path: SHOT },
+  where() {
+    const t = controls.target;
+    const p = camera.position;
+    const f = n => Math.round(n * 100) / 100;
+    const line = `{ t: 0.0, pos: [${f(p.x)}, ${f(p.y)}, ${f(p.z)}], ` +
+                 `look: [${f(t.x)}, ${f(t.y)}, ${f(t.z)}], ` +
+                 `fov: ${f(camera.fov)} },`;
+    console.log(line);
+    return line;
+  },
+  wingInfo() {
+    const c = chambers[0];
+    const out = [];
+    c.core.traverse(o => {
+      if (!o.isMesh || !/wing/i.test(o.name)) return;
+      const wp = new THREE.Vector3(), ws = new THREE.Vector3();
+      o.getWorldPosition(wp); o.getWorldScale(ws);
+      const bb = new THREE.Box3().setFromObject(o);
+      const sz = bb.getSize(new THREE.Vector3());
+      out.push({
+        name: o.name, visible: o.visible,
+        parentVisible: o.parent ? o.parent.visible : null,
+        worldPos: wp.toArray().map(v => +v.toFixed(3)),
+        worldScale: ws.toArray().map(v => +v.toFixed(3)),
+        worldSize: sz.toArray().map(v => +v.toFixed(3)),
+        matOpacity: o.material.opacity, matVisible: o.material.visible,
+      });
+    });
+    return out;
+  },
+};
+// ----------------------------------------------------------------- audio
+// Six buzzes, one per fly, panned to where its cage sits. Louder, higher and
+// harsher with heat.
+//
+// Synthesised rather than sampled: a Drosophila wingbeat is around 200Hz, so a
+// sawtooth at that fundamental with harmonics and a little filtered noise is
+// close, costs no file, and can be tuned live. A real recording can replace
+// the oscillator later without changing the mapping or the mixing.
+//
+// Browsers block audio until a gesture, so this starts on the first keypress
+// or click rather than on load.
+let audio = null;
+
+function buildAudio() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ctx.createGain();
+  master.gain.value = 0.0;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -18; comp.ratio.value = 6;
+  master.connect(comp).connect(ctx.destination);
+
+  const voices = [];
+  for (let i = 0; i < 6; i++) {
+    const isOp = i === DATA.meta.operator;
+    const g = ctx.createGain(); g.gain.value = 0;
+
+    // Pan to the cage position: the five in a row, the operator behind.
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = isOp ? 0 : ((i - 2) / 2) * 0.75;
+
+    // A body filter, opened by heat, so hot flies sound harsher not just louder.
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 0.8;
+
+    const oscs = [];
+    for (const [mult, level] of [[1, 0.5], [2, 0.22], [3, 0.12], [5, 0.05]]) {
+      const o = ctx.createOscillator();
+      o.type = mult === 1 ? 'sawtooth' : 'square';
+      o.frequency.value = 200 * mult;
+      const og = ctx.createGain(); og.gain.value = level;
+      o.connect(og).connect(lp);
+      o.start();
+      oscs.push(o);
+    }
+
+    // Filtered noise gives the buzz its body; a pure tone reads as a synth.
+    const nbuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const nd = nbuf.getChannelData(0);
+    // Deterministic noise: no RNG anywhere in this project, audio included.
+    let seed = 12345;
+    for (let k = 0; k < nd.length; k++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      nd[k] = (seed / 0x3fffffff) - 1;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = nbuf; noise.loop = true;
+    const ng = ctx.createGain(); ng.gain.value = 0.10;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'bandpass'; nf.frequency.value = 1400; nf.Q.value = 0.7;
+    noise.connect(nf).connect(ng).connect(lp);
+    noise.start();
+
+    lp.connect(g).connect(pan).connect(master);
+    voices.push({ g, lp, oscs, isOp });
+  }
+  return { ctx, master, voices, on: false };
+}
+
+function toggleAudio() {
+  if (!audio) audio = buildAudio();
+  audio.ctx.resume();
+  audio.on = !audio.on;
+  audio.master.gain.setTargetAtTime(audio.on ? 0.55 : 0.0, audio.ctx.currentTime, 0.12);
+  console.log('[amfly] sound', audio.on ? 'on' : 'off');
+}
+
+function updateAudio(f) {
+  if (!audio || !audio.on) return;
+  const t = audio.ctx.currentTime;
+  for (let i = 0; i < 6; i++) {
+    const v = audio.voices[i];
+    // Heat only. Firing rate was in here too, but it varies fast and near
+    // identically across all six, so it just added a common shimmer that
+    // muddied the one thing the sound should carry: which chamber is hot.
+    const h = v.isOp ? 0 : DATA.heat[f][i];
+
+    // The operator is never heated: a steady, quiet, indifferent buzz.
+    const level = v.isOp ? 0.055 : 0.02 + h * h * 0.34;
+    v.g.gain.setTargetAtTime(level, t, 0.05);
+
+    // Wingbeat climbs with heat, and the body filter opens, so a hot chamber
+    // is higher and harsher rather than merely louder.
+    const f0 = 185 + (v.isOp ? 0 : h * 95);
+    for (let k = 0; k < v.oscs.length; k++) {
+      v.oscs[k].frequency.setTargetAtTime(f0 * [1, 2, 3, 5][k], t, 0.06);
+    }
+    v.lp.frequency.setTargetAtTime(600 + h * 3200, t, 0.08);
+  }
+}
+
+// ---------------------------------------------------------------- record
+// MediaRecorder on the canvas stream. No screen capture, no extra tooling:
+// the page records exactly what it draws, at the size it draws it.
+let recorder = null, recChunks = [], recStart = 0;
+const recPanel = document.querySelector('#rec'), recT = document.querySelector('#recT');
+
+function startRec() {
+  const stream = canvas.captureStream(60);
+  // VP9 where available; Safari falls back to whatever it supports.
+  const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  recorder = new MediaRecorder(stream, {
+    mimeType: mime, videoBitsPerSecond: 12_000_000,
+  });
+  recChunks = [];
+  recorder.ondataavailable = e => e.data.size && recChunks.push(e.data);
+  recorder.onstop = () => {
+    const blob = new Blob(recChunks, { type: 'video/webm' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `amfly-${Date.now()}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    console.log('[amfly] recorded %.1f MB', blob.size / 1e6);
+  };
+  recorder.start();
+  recStart = performance.now();
+  recPanel.style.display = 'block';
+  // Restart playback so the clip begins at frame 0.
+  loopStart = performance.now();
+}
+
+function stopRec() {
+  if (!recorder) return;
+  recorder.stop();
+  recorder = null;
+  recPanel.style.display = 'none';
+}
+
+addEventListener('keydown', e => {
+  if (e.key === 's' || e.key === 'S') toggleAudio();
+  if (e.key === 'r' || e.key === 'R') {
+    recorder ? stopRec() : startRec();
+  }
+  if (e.key === 'c' || e.key === 'C') {
+    console.log('[amfly]', shot.on ? stopShot() : startShot());
+  }
+  // Shot and recording in one keypress, which is how a take should be made:
+  // the recorder starts, the camera runs, and both stop on their own.
+  if (e.key === 'f' || e.key === 'F') {
+    if (!recorder) startRec();
+    if (!shot.on) startShot();
+    console.log('[amfly] take: recording + shot');
+  }
+});
+animate();
+</script>
