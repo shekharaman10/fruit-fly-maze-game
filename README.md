@@ -3,11 +3,7 @@
 A man with a katana walks a circular maze, hunting flies. He is steered by fly
 brain circuitry. So are they.
 
-![the maze](docs/maze.gif)
-
-Three of the five cameras, in order: the whole maze from outside, over the
-shoulder while hunting, and first person. `C` cycles them. The pictures on the
-walls in that recording are placeholders — see below.
+![over the shoulder](docs/cam-shoulder.gif)
 
 Runs in a browser with **no build step, no npm install and no network**. Clone
 it, start a static server, open the page.
@@ -33,6 +29,29 @@ object. Long walls take two or three, and every wall between two rings is hung
 on **both** faces, so there is art whichever side you walk. About 130 fit. With
 none at all, everything still works — the walls are just bare. Details in
 [`web/walker/art/README.md`](web/walker/art/README.md).
+
+## The cameras
+
+`C` cycles five of them. Three, recorded separately:
+
+**Free view** — orbit the whole maze from outside. The flecks of colour on the
+walls are the pictures.
+
+![free view](docs/cam-free.gif)
+
+**Over the shoulder** — behind the character, hunting. This is the one at the
+top of this page.
+
+**POV** — first person, at 1.666 m eye height and 100 degrees horizontal.
+
+![point of view](docs/cam-pov.gif)
+
+The other two are `follow` and `duel`, which frames the character against
+whichever fly is being engaged. Every one of these was recorded by
+`tools/capture.mjs`; nothing was filmed by hand.
+
+The pictures on the walls in these recordings are generated placeholders — the
+gallery ships empty and is meant to be yours.
 
 ## Controls
 
@@ -107,7 +126,7 @@ node web/walker/tools/validate.mjs   # the circuits, in isolation
 node web/walker/tools/smoke.mjs      # the whole scene, no renderer
 node web/walker/tools/maze.mjs       # generation, solving, and the full march
 node web/walker/tools/experiment.mjs # the escape-reflex benchmark
-node web/walker/tools/capture.mjs    # re-record docs/maze.gif
+node web/walker/tools/capture.mjs all  # re-record the camera GIFs
 ```
 
 `capture.mjs` drives Chrome over the DevTools Protocol through node's built-in
