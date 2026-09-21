@@ -36,14 +36,14 @@ const MODES = {
   free: { presses: 0, label: 'FREE VIEW \u2014 the whole maze' },
   follow: { presses: 1, label: 'FOLLOW \u2014 behind and above' },
   shoulder: { presses: 2, label: 'OVER THE SHOULDER \u2014 hunting' },
-  pov: { presses: 3, label: 'POV \u2014 100 degrees horizontal' },
+  pov: { presses: 3, label: 'POV \u2014 100 degrees horizontal', keep: 9 },
   duel: { presses: 4, label: 'DUEL \u2014 framed on the target' },
   top: { presses: 5, label: 'TOP \u2014 straight down' },
 };
 
 const argMode = (process.argv[2] || 'shoulder').toLowerCase();
 const RECORD_SECS = Number(process.argv[3]) || 14;
-const KEEP_SECS = 5;
+const KEEP_SECS = 5;      // default clip length; a mode may override with `keep`
 
 const WIDTH = 1280;      // the browser window. The HUD is laid out for a desktop
 const HEIGHT = 720;      // size; recording small buries the scene behind it.
@@ -184,7 +184,9 @@ async function recordOne(c, mode, outFile) {
   }
   await writeFile(join(frameDir, 'label.txt'), spec.label, 'utf8');
 
-  const keep = Math.max(6, Math.round(KEEP_SECS * (frames.length / RECORD_SECS)));
+  // POV is the clip with the paintings in it, so it runs longer.
+  const keepSecs = spec.keep ?? KEEP_SECS;
+  const keep = Math.max(6, Math.round(keepSecs * (frames.length / RECORD_SECS)));
   const py = `
 import glob, os
 from PIL import Image, ImageDraw, ImageFont
@@ -207,8 +209,17 @@ def picture_score(im):
     """
     sm = im.resize((160, 90))
     n = 0
+    flies = 0
     for r, g, b in sm.getdata():
         mx, mn = max(r, g, b), min(r, g, b)
+        # A FLY, NOT A PAINTING. Counting dark pixels found the dark paintings,
+        # but a fly is dark too -- and at 534 mm it fills the lens, so the
+        # picker started choosing frames of a fly's abdomen over frames of a
+        # Vermeer. Their eyes are saturated red and nothing else in the scene
+        # is, so they are cheap to recognise and subtract.
+        if r > 120 and r - g > 60 and r - b > 60:
+            flies += 1
+            continue
         # DARK PIXELS COUNT TOO. The maze is white walls, green floor and sky --
         # nothing in it is dark except a picture frame and what hangs in it. An
         # old master is mostly near-black, so scoring only saturated pixels
@@ -226,7 +237,8 @@ def picture_score(im):
         if r > 150 and g > 110 and b < 110:      # the character's shirt
             continue
         n += 1
-    return n
+    # A frame dominated by a fly is worth less than an empty corridor.
+    return max(0, n - flies * 4)
 
 
 scores = [picture_score(im) for im in ims]

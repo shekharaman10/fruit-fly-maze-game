@@ -3,10 +3,11 @@
 **Put image files in here and they become the paintings hanging in the maze.**
 Nothing is hard-coded; the gallery is whatever you drop in.
 
-One picture ships, so a clone is not a blank gallery: Arnold Böcklin's
-*Self-Portrait with Death Playing the Fiddle* (1872). Böcklin died in 1901, so
-it is public domain — which is exactly why it is that painting and not anything
-else. Delete it if you would rather start clean.
+Two pictures ship, so a clone is not a blank gallery: Vermeer's *Girl with a
+Pearl Earring* (c. 1665) and Arnold Böcklin's *Self-Portrait with Death Playing
+the Fiddle* (1872). Vermeer died in 1675 and Böcklin in 1901, so both are public
+domain — which is exactly the test for anything that goes in here. Delete them
+if you would rather start clean.
 
 ## Two steps
 
@@ -62,8 +63,8 @@ view, so a folder of 3 MB PNGs will hitch as you walk. A 2048 px PNG costs about
 
 ## Why none of this is committed
 
-Both the pictures and the generated `manifest.js` are in `.gitignore`, with one
-exception: the Böcklin above. The art is yours, the repo should not ship someone
+Both the pictures and the generated `manifest.js` are in `.gitignore`, with two
+exceptions: the public-domain paintings above. The art is yours, the repo should not ship someone
 else's, and image files in git history are there forever whether you want them
 or not — which is also why the one that does ship is out of copyright.
 

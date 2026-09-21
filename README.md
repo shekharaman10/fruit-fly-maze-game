@@ -50,11 +50,12 @@ The other two are `follow` and `duel`, which frames the character against
 whichever fly is being engaged. Every one of these was recorded by
 `tools/capture.mjs`; nothing was filmed by hand.
 
-One real painting ships with the repo — Arnold Böcklin's *Self-Portrait with
-Death Playing the Fiddle* (1872), which is public domain — so a fresh clone is
-not a blank gallery. It is the dark one you can see hanging in the POV clip. The
-rest of the pictures in these recordings are generated placeholders; the gallery
-is meant to be yours.
+Two real paintings ship with the repo, so a fresh clone is not a blank gallery:
+Vermeer's *Girl with a Pearl Earring* (c. 1665) and Arnold Böcklin's
+*Self-Portrait with Death Playing the Fiddle* (1872). Both are public domain —
+that is the test for anything going in. The Vermeer is the one hanging on the
+right in the POV clip. The rest of the pictures in these recordings are
+generated placeholders; the gallery is meant to be yours.
 
 ## Controls
 
