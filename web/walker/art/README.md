@@ -1,8 +1,12 @@
 # Your pictures on the maze walls
 
-This folder is empty in the repo, and that is deliberate. **Put image files in
-here and they become the paintings hanging in the maze.** Nothing is hard-coded;
-the gallery is whatever you drop in.
+**Put image files in here and they become the paintings hanging in the maze.**
+Nothing is hard-coded; the gallery is whatever you drop in.
+
+One picture ships, so a clone is not a blank gallery: Arnold Böcklin's
+*Self-Portrait with Death Playing the Fiddle* (1872). Böcklin died in 1901, so
+it is public domain — which is exactly why it is that painting and not anything
+else. Delete it if you would rather start clean.
 
 ## Two steps
 
@@ -58,9 +62,10 @@ view, so a folder of 3 MB PNGs will hitch as you walk. A 2048 px PNG costs about
 
 ## Why none of this is committed
 
-Both the pictures and the generated `manifest.js` are in `.gitignore`. The art
-is yours, the repo should not ship someone else's, and image files in git
-history are there forever whether you want them or not.
+Both the pictures and the generated `manifest.js` are in `.gitignore`, with one
+exception: the Böcklin above. The art is yours, the repo should not ship someone
+else's, and image files in git history are there forever whether you want them
+or not — which is also why the one that does ship is out of copyright.
 
-`index.js` is the one file here that *is* committed: it loads the manifest if
+`index.mjs` is the other file here that *is* committed: it loads the manifest if
 there is one and shrugs if there is not.

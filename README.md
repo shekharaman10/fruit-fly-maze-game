@@ -50,8 +50,11 @@ The other two are `follow` and `duel`, which frames the character against
 whichever fly is being engaged. Every one of these was recorded by
 `tools/capture.mjs`; nothing was filmed by hand.
 
-The pictures on the walls in these recordings are generated placeholders — the
-gallery ships empty and is meant to be yours.
+One real painting ships with the repo — Arnold Böcklin's *Self-Portrait with
+Death Playing the Fiddle* (1872), which is public domain — so a fresh clone is
+not a blank gallery. It is the dark one you can see hanging in the POV clip. The
+rest of the pictures in these recordings are generated placeholders; the gallery
+is meant to be yours.
 
 ## Controls
 

@@ -209,7 +209,15 @@ def picture_score(im):
     n = 0
     for r, g, b in sm.getdata():
         mx, mn = max(r, g, b), min(r, g, b)
-        if mx <= 60 or (mx - mn) / (mx or 1) <= 0.32:
+        # DARK PIXELS COUNT TOO. The maze is white walls, green floor and sky --
+        # nothing in it is dark except a picture frame and what hangs in it. An
+        # old master is mostly near-black, so scoring only saturated pixels
+        # rated Boecklin's self-portrait at roughly nothing and would have
+        # picked a window that carefully avoided it.
+        if mx < 55:
+            n += 1
+            continue
+        if (mx - mn) / (mx or 1) <= 0.32:
             continue
         if g > r + 18 and g > b + 18:            # floor
             continue
@@ -250,10 +258,20 @@ for im in ims:
     d.text((m + pad - box[0], y0 + pad - box[1]), label, font=font,
            fill=(245, 245, 245, 255))
 
-# One palette for the whole clip. Per-frame adaptive palettes make the walls
-# crawl between frames.
-pal = ims[len(ims) // 2].quantize(colors=96, method=Image.MEDIANCUT)
-qs = [im.quantize(palette=pal, dither=Image.FLOYDSTEINBERG) for im in ims]
+# One palette for the whole clip -- per-frame adaptive palettes make the walls
+# crawl between frames -- but built from a STRIP of several frames rather than
+# the middle one alone. A dark painting that is only in shot for part of the
+# clip otherwise gets no dark tones allocated to it and comes out as banding.
+strip = Image.new("RGB", (ims[0].width, ims[0].height * min(5, len(ims))))
+for i, k in enumerate(range(0, len(ims), max(1, len(ims) // 5))[:5]):
+    strip.paste(ims[k], (0, i * ims[0].height))
+pal = strip.quantize(colors=160, method=Image.MEDIANCUT)
+# NO DITHERING. The scene is flat-shaded, so dithering buys nothing on the walls
+# and wrecks the one thing worth looking at: Floyd-Steinberg scattered red and
+# green speckle across a dark oil painting, because the palette is dominated by
+# bright maze colours and it had nothing close to reach for. Flat quantisation
+# bands slightly instead, which on a small dark picture is far less noticeable.
+qs = [im.quantize(palette=pal, dither=Image.NONE) for im in ims]
 qs[0].save(OUT_PATH, save_all=True, append_images=qs[1:],
            duration=${Math.round(1000 / FPS)}, loop=0, optimize=True)
 name = os.path.basename(OUT_PATH)

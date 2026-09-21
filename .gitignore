@@ -39,3 +39,8 @@ data/soma.npz
 web/walker/art/*
 !web/walker/art/index.mjs
 !web/walker/art/README.md
+# One picture ships, so a fresh clone is not a blank gallery and the README GIFs
+# show something real. Arnold Boecklin died in 1901, so "Self-Portrait with
+# Death Playing the Fiddle" (1872) is public domain -- which is the whole reason
+# it is this painting and not any of the others that were in here.
+!web/walker/art/Arnold B*cklin.jpg
