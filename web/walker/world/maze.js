@@ -381,14 +381,25 @@ function hangPictures(group, arcs, seed) {
     // Greedy, but scanning the whole queue rather than only its head: a wide
     // picture at the front would otherwise block a narrow one that fits, and
     // stall the arc with room to spare.
+    //
+    // NEVER THE SAME FILE TWICE ON ONE WALL. Two identical pictures hanging
+    // side by side read as a rendering fault rather than as a gallery, and
+    // first-fit makes it likely rather than rare: at equal diagonal a narrow
+    // portrait is the easiest thing to fit, so the same narrow file wins the
+    // second slot it was offered. Only matters when the folder holds fewer
+    // distinct images than the maze has walls, which is exactly when it looks
+    // worst.
     const take = [];
+    const onThisArc = new Set();
     let used = 0;
     for (let i = 0; i < queue.length; i++) {
-      const [, px, py] = queue[i];
+      const [file, px, py] = queue[i];
+      if (onThisArc.has(file)) continue;
       const { w, h } = frameSize(px, py);
       const need = used + (take.length ? ART_GAP : 0) + w;
       if (need > usable) continue;
       used = need;
+      onThisArc.add(file);
       take.push({ art: queue[i], w, h });
       queue.splice(i, 1);
       i--;

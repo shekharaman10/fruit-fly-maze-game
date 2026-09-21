@@ -67,6 +67,85 @@ generated placeholders; the gallery is meant to be yours.
 | `L` | remove the compass landmark, and watch the heading drift |
 | `space` | pause · `R` reset · `F` hold fire |
 
+## The flies
+
+![the flies](docs/cam-flies.gif)
+
+The `duel` camera frames whichever fly is being engaged. They are 534 mm here —
+214 times life size, and about 30% of the character's height — because a real
+*Drosophila* at this scale would be a single invisible pixel.
+
+## Where this comes from: the male CNS connectome
+
+In 2026 Google Research and Janelia's FlyEM team released a map of the **entire
+male fruit fly central nervous system** — at the time the largest brain map by
+number of neurons. This project is built on that release, `MaleCNS v1.0`,
+CC BY 4.0.
+
+What makes it the useful one is not the neuron count but the **coverage**: it
+includes the central brain, the optic lobes *and* the ventral nerve cord — the
+fly's spinal cord. That is what lets you trace a path from a visual input all
+the way to a motor output, which is precisely what this game walks on.
+
+### The numbers, measured rather than quoted
+
+`amfly/data/loader.py` reads the released files directly and
+`tests/test_loader.py` asserts what it finds:
+
+| | |
+|---|---|
+| neurons | 166,700 |
+| **connections** | 25,582,938 |
+| **synapses** | 124,177,617 |
+| cell types | 11,691 |
+| descending neurons (brain → cord) | 1,314 |
+| VNC leg motor neurons | 708 |
+
+**Those middle two are different quantities and are constantly conflated**,
+including in some coverage of the release, which reports "125 million synaptic
+connections" — merging a synapse count with a connection count that is five
+times smaller. A connection is a pair of neurons that talk; a synapse is one
+contact, and a connection is usually several. The repo keeps them apart on
+purpose and fails a test if they drift.
+
+### What the game actually takes from it
+
+Twelve named cell types, each standing for a population the release describes:
+
+| | |
+|---|---|
+| `EPG` `PEN` `ER` | the head-direction compass: a ring attractor, rotated by angular velocity, pinned by a visual landmark |
+| `FC2` `PFL3` | goal direction, and the comparison that turns heading error into a turn |
+| `DNa02` `DNa01` `DNp09` `MDN` | descending neurons — the brain's four wires down to the cord |
+| `LoVP92` `AOTU012` | the male-specific and sexually dimorphic pair, which only a *male* connectome offers |
+| `LegCPG` | six coupled oscillators standing in for the 708 leg motor neurons |
+
+`LoVP92` and `AOTU012` are the reason the male map matters rather than the
+female one released earlier: having both sexes mapped is what makes the
+differences visible in the first place. The release highlights `AOTU008` as its
+worked example of dimorphism — the male cell carries two extra projections.
+
+### Where the resemblance stops
+
+**The walker's weights are hand-tuned, not measured.** `brain/connectome.js`
+models about ten populations with gains chosen so the figure walks well. The
+*topology* — who talks to whom, and with what sign — follows the published
+circuit; the numbers on the arrows do not come from the connectome.
+
+The half of this repo that does use the real data is `amfly/`, which loads the
+1 GB weights table, applies Dale's law per presynaptic neuron, and runs six
+copies of all 166,700 neurons as leaky integrate-and-fire networks that stay
+bit-identical until something is done to one of them.
+
+And the gait is authored. Spike-to-muscle-force has no established mapping, so
+the 708 leg motor neurons in the dataset are represented by six phase
+oscillators — **an engineered gait modulated by circuit activity**, not "the
+connectome walks the body". `docs/roadmap-3d.md` sets out what closing that gap
+would actually take, and why nobody has.
+
+Explore the dataset yourself at
+[male-cns.janelia.org](https://male-cns.janelia.org/).
+
 ## What is real, and what is mine
 
 The project is careful about this line, and

@@ -37,7 +37,8 @@ const MODES = {
   follow: { presses: 1, label: 'FOLLOW \u2014 behind and above' },
   shoulder: { presses: 2, label: 'OVER THE SHOULDER \u2014 hunting' },
   pov: { presses: 3, label: 'POV \u2014 100 degrees horizontal', keep: 9 },
-  duel: { presses: 4, label: 'DUEL \u2014 framed on the target' },
+  duel: { presses: 4, label: 'DUEL \u2014 framed on the target', keep: 6 },
+  flies: { presses: 3, label: 'THE FLIES \u2014 166,700 neurons each', keep: 7, subject: 'flies', shot: 'follow' },
   top: { presses: 5, label: 'TOP \u2014 straight down' },
 };
 
@@ -117,14 +118,14 @@ async function recordOne(c, mode, outFile) {
   // than intended. The HUD has button.vm[data-mode] and button.shot[data-shot],
   // and #r-cam reports what is actually selected, so ask for the mode and then
   // check it was given.
-  const want = mode;
+  const want = spec.shot || mode;   // the readout reports the SHOT, not my label
   await c.send('Runtime.evaluate', {
     expression: `(() => {
       const vm = (m) => document.querySelector('button.vm[data-mode="' + m + '"]');
       const shot = (sname) => document.querySelector('button.shot[data-shot="' + sname + '"]');
-      if (${JSON.stringify(mode)} === 'free') { vm('free') && vm('free').click(); return; }
+      if (${JSON.stringify(spec.shot || mode)} === 'free') { vm('free') && vm('free').click(); return; }
       vm('follow') && vm('follow').click();
-      const b = shot(${JSON.stringify(mode)});
+      const b = shot(${JSON.stringify(spec.shot || mode)});
       if (b) b.click();
     })()`,
   });
@@ -194,6 +195,10 @@ from PIL import Image, ImageDraw, ImageFont
 # Hoisted out of the f-strings below: a Windows path is full of backslashes
 # and an f-string expression cannot contain one before Python 3.12.
 OUT_PATH = r"${outFile}"
+# What this clip is OF. The art clips want the flies out of the way; the fly
+# clip wants exactly the opposite, so the same score is read with its sign
+# flipped rather than duplicated.
+SUBJECT = "${spec.subject || 'art'}"
 files = sorted(glob.glob(os.path.join(r"${frameDir}", "*.jpg")))
 ims = [Image.open(f).convert("RGB") for f in files]
 # UTF-8 explicitly: the em dash came back as mojibake through the Windows
@@ -238,6 +243,10 @@ def picture_score(im):
             continue
         n += 1
     # A frame dominated by a fly is worth less than an empty corridor.
+    if SUBJECT == "flies":
+        # A fly is a dark body with saturated red eyes, and nothing else in the
+        # maze is either. For the fly clip that is the subject, not the problem.
+        return n + flies * 3
     return max(0, n - flies * 4)
 
 
