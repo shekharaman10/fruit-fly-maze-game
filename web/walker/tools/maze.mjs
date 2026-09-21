@@ -151,6 +151,10 @@ const world = buildMaze({ seed: 20260917 });
     for (let j = i + 1; j < world.pictures.length; j++) {
       const a = world.pictures[i];
       const b = world.pictures[j];
+      // Only compare pictures hung on the SAME face. Two on opposite sides of
+      // one wall are ~0.2 m apart in plan and would read as overlapping, when
+      // in fact they are back to back and face opposite corridors.
+      if (a.facing !== b.facing) continue;
       const gap = Math.hypot(a.x - b.x, a.z - b.z) - (a.w + b.w) / 2;
       tightest = Math.min(tightest, gap);
     }

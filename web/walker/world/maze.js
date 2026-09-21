@@ -168,7 +168,14 @@ export function extractWalls(graph, passages, entranceCell, shellR = MAZE.outerR
           if (passages.has(edgeKey(graph.nodeId(r, i), graph.nodeId(r + 1, childIndex)))) continue;
           const a0 = childIndex * outStep;
           arcSegments(outerRadius(r), a0, a0 + outStep, segs);
+          // BOTH FACES. A wall between two rings has a corridor on each side,
+          // and hanging on only one meant every second wall you walked past
+          // showed the blank back of a picture hung for the ring next door --
+          // measured: all 70 interior arcs carried facing 1, so half the walls
+          // in view were bare by construction. Two entries, two corridors, and
+          // the gallery roughly doubles to ~140 places without adding geometry.
           arcs.push({ radius: outerRadius(r), a0, a1: a0 + outStep, facing: 1 });
+          arcs.push({ radius: outerRadius(r), a0, a1: a0 + outStep, facing: -1 });
         }
       }
     }
@@ -428,7 +435,7 @@ function hangPictures(group, arcs, seed) {
       // corridor, in front of the picture rather than inside the wall it hangs
       // on.
       hung.push({
-        file, w: t.w, h: t.h,
+        file, w: t.w, h: t.h, facing: a.facing,
         x: p.x, z: p.z, yaw: holder.rotation.y,
         viewFrom: {
           x: p.x - a.facing * Math.sin(ang) * 1.05,

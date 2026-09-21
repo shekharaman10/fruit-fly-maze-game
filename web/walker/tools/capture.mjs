@@ -13,9 +13,16 @@
 // wall-clock frames rather than a fixed step. Expect a recording that looks
 // slower than the game does. It is a picture of the game, not a benchmark.
 //
-// RECORD WITH art/ EMPTY. Whatever is hanging on the walls ends up inside the
-// GIF, and the GIF goes in a public README. The gallery is meant to be the
-// viewer's own pictures anyway, so an empty one is the honest advertisement.
+// MIND WHAT IS ON THE WALLS. Whatever is hanging ends up inside the GIF, and
+// the GIF goes in a public README. Record with art/ holding pictures you are
+// willing to publish -- the placeholder set, not a personal gallery of film
+// stills.
+//
+// It records a TOUR rather than one angle: free view, over-the-shoulder, POV.
+// C only switches free->follow the first time it is pressed and cycles the shot
+// after that (see the key handler in main.js), which is why the key counts
+// below are what they are. Each leg is captioned in the finished GIF, because a
+// silent cut between two camera angles just reads as a glitch.
 
 import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, readdir, rm } from 'node:fs/promises';
@@ -23,7 +30,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SECONDS = Number(process.argv[2]) || 8;
+// Each leg: how many times to press C to arrive, how long to sit there, and
+// what to call it on screen. Presses are cumulative down the list.
+const TOUR = [
+  { presses: 0, hold: 4.0, label: 'FREE VIEW  \u2014  the whole maze' },
+  { presses: 2, hold: 6.5, label: 'OVER THE SHOULDER  \u2014  your pictures on the walls' },
+  { presses: 1, hold: 4.0, label: 'POV  \u2014  100 degrees horizontal' },
+];
+
+const SECONDS = TOUR.reduce((a, t) => a + t.hold, 0);
 const OUT = process.argv[3]
   || fileURLToPath(new URL('../../../docs/maze.gif', import.meta.url));
 
@@ -161,26 +176,24 @@ try {
   await key('keyUp', 'h', 'KeyH', 72);
   await sleep(1200);
 
-  // C cycles the camera. Two presses lands on the over-the-shoulder shot, which
-  // is the one that reads as a game: the character from behind, the corridor
-  // ahead, the flies in frame. The opening view is the whole maze from above --
-  // handsome, but at 640 px the character in it is four pixels tall.
-  for (let i = 0; i < 2; i++) {
+  const pressC = async () => {
     await key('keyDown', 'c', 'KeyC', 67);
     await key('keyUp', 'c', 'KeyC', 67);
-    await sleep(900);
-  }
-  await sleep(1200);
+    await sleep(700);
+  };
 
   const frames = [];
+  const labels = [];
   const minGap = 1000 / FPS;
   let last = 0;
+  let caption = '';
 
   c.on('Page.screencastFrame', async (p) => {
     const now = Date.now();
     if (now - last >= minGap) {
       last = now;
       frames.push(Buffer.from(p.data, 'base64'));
+      labels.push(caption);
     }
     try { await c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); } catch { /* closing */ }
   });
@@ -188,8 +201,13 @@ try {
   await c.send('Page.startScreencast', {
     format: 'jpeg', quality: 70, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1,
   });
-  console.log('  recording...');
-  await sleep(SECONDS * 1000);
+
+  for (const leg of TOUR) {
+    for (let i = 0; i < leg.presses; i++) await pressC();
+    caption = leg.label;
+    console.log(`  recording: ${leg.label}`);
+    await sleep(leg.hold * 1000);
+  }
   await c.send('Page.stopScreencast');
   ws.close();
 
@@ -200,16 +218,40 @@ try {
   for (let i = 0; i < frames.length; i++) {
     await writeFile(join(frameDir, `f${String(i).padStart(4, '0')}.jpg`), frames[i]);
   }
+  await writeFile(join(frameDir, 'labels.json'), JSON.stringify(labels));
 
   // --- Pillow does the encoding -------------------------------------------
   const py = `
-import glob, os
-from PIL import Image
+import glob, json, os
+from PIL import Image, ImageDraw, ImageFont
 files = sorted(glob.glob(os.path.join(r"${frameDir}", "*.jpg")))
 ims = [Image.open(f).convert("RGB") for f in files]
+labels = json.load(open(os.path.join(r"${frameDir}", "labels.json"), encoding="utf-8"))
 w, h = ims[0].size
 scale = ${GIF_WIDTH} / w
 ims = [im.resize((${GIF_WIDTH}, round(h * scale)), Image.LANCZOS) for im in ims]
+
+# Caption each leg. A cut between two camera angles with nothing to explain it
+# just looks like the recording glitched.
+try:
+    font = ImageFont.truetype("C:/Windows/Fonts/segoeuib.ttf", 17)
+except Exception:
+    try:
+        font = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", 17)
+    except Exception:
+        font = ImageFont.load_default()
+
+for im, text in zip(ims, labels):
+    if not text:
+        continue
+    d = ImageDraw.Draw(im, "RGBA")
+    box = d.textbbox((0, 0), text, font=font)
+    tw, th = box[2] - box[0], box[3] - box[1]
+    pad, m = 9, 14
+    y0 = im.height - th - pad * 2 - m
+    d.rounded_rectangle([m, y0, m + tw + pad * 2, y0 + th + pad * 2],
+                        radius=6, fill=(14, 16, 20, 190))
+    d.text((m + pad - box[0], y0 + pad - box[1]), text, font=font, fill=(245, 245, 245, 255))
 # Adaptive palette per frame would shimmer; one palette from the middle frame
 # keeps the walls from crawling between frames.
 pal = ims[len(ims)//2].quantize(colors=96, method=Image.MEDIANCUT)

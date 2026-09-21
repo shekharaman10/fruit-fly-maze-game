@@ -5,6 +5,10 @@ brain circuitry. So are they.
 
 ![the maze](docs/maze.gif)
 
+Three of the five cameras, in order: the whole maze from outside, over the
+shoulder while hunting, and first person. `C` cycles them. The pictures on the
+walls in that recording are placeholders — see below.
+
 Runs in a browser with **no build step, no npm install and no network**. Clone
 it, start a static server, open the page.
 
@@ -25,9 +29,10 @@ node web/walker/tools/serve.mjs      # rebuilds the gallery on every boot
 
 Each picture gets a frame cut to its own pixel dimensions, hung on the same
 1.15 m diagonal so a tall portrait and a wide landscape read as the same size of
-object. Long walls take two or three. About 114 fit. With none at all,
-everything still works — the walls are just bare, which is what the GIF above
-shows. Details in [`web/walker/art/README.md`](web/walker/art/README.md).
+object. Long walls take two or three, and every wall between two rings is hung
+on **both** faces, so there is art whichever side you walk. About 130 fit. With
+none at all, everything still works — the walls are just bare. Details in
+[`web/walker/art/README.md`](web/walker/art/README.md).
 
 ## Controls
 
