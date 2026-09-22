@@ -7,7 +7,7 @@
 // `wallSegments` was used in main.js while the import line still listed the old
 // set, and nothing caught it until the page was loaded.
 
-import { readFile } from 'node:fs/promises';
+import { readFile as rawReadFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -15,6 +15,30 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ENTRIES = ['../main.js', '../world/player.js', '../render/hud.js'];
 
 const IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+
+/**
+ * Read a source file with its line endings normalised to LF.
+ *
+ * THIS IS NOT COSMETIC. The working tree has mixed endings -- git converts what
+ * it touches to CRLF on this machine while patches written directly are LF --
+ * and every line-based check in this file is a regex.
+ *
+ * The specific trap: `/\/\/.*$/` does NOT strip a comment from a CRLF line.
+ * Without the `m` flag `$` anchors to the end of the STRING, and `.` cannot
+ * consume the `\r` before it, so the match fails and the whole comment
+ * survives. The free-view check below then read its own explanatory comment --
+ * which names `camera.position` and `controls.target` precisely because those
+ * are the things it forbids -- and reported a failure on a branch that was
+ * clean. A test that cries wolf is worse than no test: the next person deletes
+ * it.
+ *
+ * Normalising once on read fixes it for every check here rather than for the
+ * one that happened to be caught.
+ */
+async function readFile(path, enc) {
+  const s = await rawReadFile(path, enc);
+  return typeof s === 'string' ? s.replace(/\r\n?/g, '\n') : s;
+}
 
 let failures = 0;
 console.log('');
