@@ -36,10 +36,24 @@ COUNT = int(sys.argv[1]) if len(sys.argv) > 1 else 24
 
 # Aged paper, and three inks. Kept narrow on purpose: a library wall is not
 # colourful, and the pictures have to read against dark panelling by lamplight.
-PAPERS = [(232, 221, 196), (226, 214, 188), (238, 228, 206), (219, 206, 180)]
-INK = (38, 30, 22)
-INK_SOFT = (92, 76, 56)
+#
+# THE FIRST SET WAS TOO FAINT TO SEE. Measured across the twenty-four: twenty of
+# them carried between 0.9% and 2.7% ink, and at wall distance under a lamp they
+# read as empty frames -- the first thing anyone asked was how many frames had
+# no picture in them. Only the marbled ones, at 40%+ coverage, registered at
+# all. So the paper is darker, the ink is heavier, strokes scale with the plate
+# rather than sitting at one or two pixels, and every kind now carries a mass of
+# tone somewhere rather than being pure outline.
+PAPERS = [(214, 200, 172), (206, 191, 163), (220, 207, 180), (199, 184, 156)]
+INK = (26, 20, 14)
+INK_SOFT = (74, 60, 44)
 ACCENT = [(122, 38, 30), (36, 62, 74), (96, 82, 36)]
+
+# Stroke weight as a fraction of the plate width, so a line is a line at any
+# size. The originals hard-coded width=1 and width=2, which on a 760 px plate
+# scaled down to a wall is nothing at all.
+def wgt(w, k=1.0):
+    return max(2, int(w * 0.0055 * k))
 
 # Portrait mostly, as plates are, with a few squares and one landscape shape.
 SHAPES = [(760, 1080), (700, 1120), (900, 900), (1120, 760), (820, 1080), (960, 1000)]
@@ -97,9 +111,9 @@ def botanical(im, d, w, h, rnd):
         y = base_y + (tip_y - base_y) * t
         x = cx + math.sin(t * math.pi * rnd.uniform(0.8, 1.6)) * w * 0.06
         pts.append((x, y))
-    d.line(pts, fill=INK, width=max(3, int(w * 0.006)), joint="curve")
+    d.line(pts, fill=INK, width=wgt(w, 2.0), joint="curve")
 
-    leaves = rnd.randint(5, 9)
+    leaves = rnd.randint(8, 13)
     for i in range(leaves):
         t = 0.18 + 0.72 * (i / max(1, leaves - 1))
         idx = int(t * n)
@@ -111,9 +125,11 @@ def botanical(im, d, w, h, rnd):
         # A leaf as two arcs meeting at the tip.
         mid1 = (x + (ex - x) * 0.5 + side * ln * 0.12, y + (ey - y) * 0.5 - ln * 0.18)
         mid2 = (x + (ex - x) * 0.5 - side * ln * 0.10, y + (ey - y) * 0.5 + ln * 0.16)
-        d.line([(x, y), mid1, (ex, ey)], fill=INK, width=2, joint="curve")
-        d.line([(x, y), mid2, (ex, ey)], fill=INK, width=2, joint="curve")
-        d.line([(x, y), (ex, ey)], fill=INK_SOFT, width=1)
+        # Filled blade, then the outline and the midrib over it.
+        d.polygon([(x, y), mid1, (ex, ey), mid2], fill=(140, 150, 112))
+        d.line([(x, y), mid1, (ex, ey)], fill=INK, width=wgt(w, 0.9), joint="curve")
+        d.line([(x, y), mid2, (ex, ey)], fill=INK, width=wgt(w, 0.9), joint="curve")
+        d.line([(x, y), (ex, ey)], fill=INK_SOFT, width=wgt(w, 0.6))
 
     # A flower or seed head at the tip.
     ax = ACCENT[rnd.randrange(len(ACCENT))]
@@ -133,27 +149,32 @@ def stellar(im, d, w, h, rnd):
     top = rule(d, w, h, rnd)
     cx, cy = w / 2, top * 0.52
     R = min(w, top) * 0.40
-    d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=INK, width=3)
-    d.ellipse([cx - R * 0.66, cy - R * 0.66, cx + R * 0.66, cy + R * 0.66],
-              outline=INK_SOFT, width=1)
+    # THE SKY IS INKED IN. A star chart drawn as dots on white is the emptiest
+    # thing in the set; the same chart on a dark ground is the one that reads
+    # from across a room.
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], fill=(22, 26, 34), outline=INK,
+              width=wgt(w, 1.6))
     for i in range(12):
         a = i * math.tau / 12
-        d.line([cx + math.cos(a) * R * 0.1, cy + math.sin(a) * R * 0.1,
-                cx + math.cos(a) * R, cy + math.sin(a) * R], fill=(140, 122, 96, 120), width=1)
+        d.line([cx + math.cos(a) * R * 0.08, cy + math.sin(a) * R * 0.08,
+                cx + math.cos(a) * R, cy + math.sin(a) * R],
+               fill=(92, 104, 120, 150), width=wgt(w, 0.5))
+    for k in (0.33, 0.66):
+        d.ellipse([cx - R * k, cy - R * k, cx + R * k, cy + R * k],
+                  outline=(92, 104, 120, 150), width=wgt(w, 0.5))
 
     stars = []
-    for _ in range(rnd.randint(55, 90)):
+    for _ in range(rnd.randint(150, 230)):
         a = rnd.uniform(0, math.tau)
-        rr = R * math.sqrt(rnd.random())
+        rr = R * math.sqrt(rnd.random()) * 0.97
         x, y = cx + math.cos(a) * rr, cy + math.sin(a) * rr
         mag = rnd.choice([1, 1, 1, 2, 2, 3, 4])
         stars.append((x, y, mag))
-        s = mag * max(1.5, w * 0.0035)
-        d.ellipse([x - s, y - s, x + s, y + s], fill=INK)
-    # Constellation: join a handful of the brightest into a figure.
-    bright = sorted(stars, key=lambda s: -s[2])[:rnd.randint(5, 8)]
+        s = mag * max(1.6, w * 0.0042)
+        d.ellipse([x - s, y - s, x + s, y + s], fill=(248, 244, 230))
+    bright = sorted(stars, key=lambda s: -s[2])[:rnd.randint(6, 9)]
     rnd.shuffle(bright)
-    d.line([(s[0], s[1]) for s in bright], fill=ACCENT[1] + (190,), width=2)
+    d.line([(s[0], s[1]) for s in bright], fill=(150, 190, 220, 220), width=wgt(w, 0.8))
 
 
 def elevation(im, d, w, h, rnd):
@@ -169,20 +190,27 @@ def elevation(im, d, w, h, rnd):
     for i in range(cols):
         x = m + span * (i + 0.5)
         cw = span * 0.22
-        d.rectangle([x - cw, cap, x + cw, ground], outline=INK, width=2)
-        # Fluting
-        for f in range(3):
-            fx = x - cw + cw * 2 * (f + 1) / 4
-            d.line([fx, cap + h * 0.01, fx, ground - h * 0.01], fill=(150, 132, 104), width=1)
-        # Capital
-        d.rectangle([x - cw * 1.5, cap - h * 0.022, x + cw * 1.5, cap], outline=INK, width=2)
+        # Shafts carry a tone, and the shaded side is darker. An elevation in
+        # pure outline is the plate that vanished worst.
+        d.rectangle([x - cw, cap, x + cw, ground], fill=(178, 166, 143), outline=INK,
+                    width=wgt(w))
+        d.rectangle([x + cw * 0.35, cap, x + cw, ground], fill=(150, 138, 116))
+        for f in range(4):
+            fx = x - cw + cw * 2 * (f + 1) / 5
+            d.line([fx, cap + h * 0.012, fx, ground - h * 0.012],
+                   fill=(120, 108, 88), width=wgt(w, 0.6))
+        d.rectangle([x - cw * 1.5, cap - h * 0.026, x + cw * 1.5, cap],
+                    fill=(190, 178, 153), outline=INK, width=wgt(w))
 
-    # Entablature and pediment
-    ent = cap - h * 0.022
-    d.rectangle([m * 0.8, ent - h * 0.05, w - m * 0.8, ent], outline=INK, width=2)
-    apex = ent - h * 0.12
-    d.polygon([(m * 0.8, ent - h * 0.05), (w / 2, apex), (w - m * 0.8, ent - h * 0.05)],
-              outline=INK)
+    # Entablature and pediment, both filled.
+    ent = cap - h * 0.026
+    d.rectangle([m * 0.8, ent - h * 0.058, w - m * 0.8, ent], fill=(196, 184, 158),
+                outline=INK, width=wgt(w))
+    apex = ent - h * 0.13
+    d.polygon([(m * 0.8, ent - h * 0.058), (w / 2, apex), (w - m * 0.8, ent - h * 0.058)],
+              fill=(184, 172, 147), outline=INK)
+    # Shadow under the cornice, which is what tells the eye it is architecture.
+    d.rectangle([m * 0.8, ent, w - m * 0.8, ent + h * 0.012], fill=(96, 86, 70))
     # Arches between columns, on some plates
     if rnd.random() < 0.5:
         for i in range(cols - 1):
@@ -220,21 +248,24 @@ def geometric(im, d, w, h, rnd):
     cx, cy = w / 2, top * 0.52
     R = min(w, top) * 0.36
     # The construction, with the working left visible.
-    d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=INK, width=3)
     n = rnd.choice([5, 6, 7, 8, 12])
     pts = [(cx + math.cos(i * math.tau / n - math.pi / 2) * R,
             cy + math.sin(i * math.tau / n - math.pi / 2) * R) for i in range(n)]
+    # The figure sits on a tone, so the construction lines have something to be
+    # drawn on rather than disappearing into the paper.
+    d.polygon(pts, fill=(186, 174, 149))
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=INK, width=wgt(w, 1.6))
     for i in range(n):
         for j in range(i + 1, n):
-            d.line([pts[i], pts[j]], fill=(150, 132, 104, 160), width=1)
+            d.line([pts[i], pts[j]], fill=(104, 90, 70, 210), width=wgt(w, 0.55))
     d.polygon(pts, outline=INK)
-    # Inscribed circles at each vertex, the compass marks of the construction.
     for (x, y) in pts:
         r = R * 0.18
-        d.ellipse([x - r, y - r, x + r, y + r], outline=(150, 132, 104), width=1)
+        d.ellipse([x - r, y - r, x + r, y + r], outline=(110, 96, 74), width=wgt(w, 0.55))
+        d.ellipse([x - r * 0.12, y - r * 0.12, x + r * 0.12, y + r * 0.12], fill=INK)
     ax = ACCENT[rnd.randrange(len(ACCENT))]
     d.ellipse([cx - R * 0.26, cy - R * 0.26, cx + R * 0.26, cy + R * 0.26],
-              outline=ax, width=3)
+              fill=ax + (70,), outline=ax, width=wgt(w, 1.4))
 
 
 def chart(im, d, w, h, rnd):
@@ -256,13 +287,18 @@ def chart(im, d, w, h, rnd):
         y = max(h * 0.18, min(top * 0.85, y))
         base.append((x, y))
         x += w * 0.035
-    d.line(base, fill=INK, width=3, joint="curve")
-    for k in range(1, rnd.randint(3, 6)):
-        off = k * h * 0.028
-        d.line([(px, py + off) for (px, py) in base], fill=(150, 132, 104, 150), width=1)
-    # Hatching seaward
-    for (px, py) in base[::2]:
-        d.line([px, py, px, py - h * 0.016], fill=INK_SOFT, width=1)
+    # Land filled below the coast: a chart is two tones meeting at a line, and
+    # drawing only the line left a blank sheet with a squiggle on it.
+    land = base + [(w * 0.92, top), (w * 0.08, top)]
+    d.polygon(land, fill=(178, 168, 140))
+    d.line(base, fill=INK, width=wgt(w, 1.8), joint="curve")
+    for k in range(1, rnd.randint(4, 7)):
+        off = k * h * 0.026
+        d.line([(px, py + off) for (px, py) in base], fill=(112, 98, 76, 200),
+               width=wgt(w, 0.5))
+    # Hatching seaward, dense enough to be a tone in its own right.
+    for (px, py) in base:
+        d.line([px, py, px, py - h * 0.022], fill=INK_SOFT, width=wgt(w, 0.5))
 
     # Compass rose
     rx, ry = w * 0.78, top * 0.24
