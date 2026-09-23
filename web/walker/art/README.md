@@ -9,6 +9,24 @@ the Fiddle* (1872). Vermeer died in 1675 and Böcklin in 1901, so both are publi
 domain — which is exactly the test for anything that goes in here. Delete them
 if you would rather start clean.
 
+## `generated/` — plates drawn for the place
+
+```
+python web/walker/tools/libraryArt.py 24
+```
+
+Fills `generated/` with the kind of plate that hangs in a college library:
+botanical specimens, star charts, classical elevations, marbled endpapers,
+geometric constructions, coastal charts. Aged paper, iron-gall ink, and
+deterministic — plate N is always the same plate, which matters because the maze
+hangs pictures in a seeded order and a folder that changed under it would
+rearrange every wall.
+
+They live in their own folder rather than loose in here for one reason: this
+folder is *your* pictures, chosen one at a time, and `generated/` is regenerated
+wholesale. Deleting it costs nothing. They look their best under `N`, the
+after-hours lighting.
+
 ## Two steps
 
 ```
@@ -17,8 +35,10 @@ if you would rather start clean.
 ```
 
 That is all. The server regenerates the manifest every time it starts, so a
-refresh is enough after adding more. If you are serving the files some other
-way, run the generator yourself:
+refresh is enough after adding more. **Subfolders one level deep are scanned
+too**, so `generated/` below hangs alongside everything else.
+
+If you are serving the files some other way, run the generator yourself:
 
 ```
 node web/walker/tools/artManifest.mjs

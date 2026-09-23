@@ -440,6 +440,9 @@ function hangPictures(group, arcs, seed) {
       canvas.position.z = 0.017;
       holder.add(canvas);
       loadTexture(file, mat);
+      // The frame material is kept as well as the canvas one: night mode turns
+      // the frames to brass and makes the pictures glow by their own colours,
+      // and it cannot do either without a handle on them.
 
       // Position and facing are kept so main.js can make the character stop and
       // actually look at each one. `viewFrom` is a standing spot out in the
@@ -447,6 +450,7 @@ function hangPictures(group, arcs, seed) {
       // on.
       hung.push({
         file, w: t.w, h: t.h, facing: a.facing,
+        mat, frameMat: frame.material,
         x: p.x, z: p.z, yaw: holder.rotation.y,
         viewFrom: {
           x: p.x - a.facing * Math.sin(ang) * 1.05,
@@ -674,6 +678,10 @@ export function buildMaze(opts = {}) {
 
   const world = {
     group, graph, passages, tree, segs, arcs, pictures, ringCells, shellR,
+    // The shell's surface materials, so render/night.js can take the whole room
+    // from a daylit gallery down to a library after hours without rebuilding
+    // any geometry. Colours are the only thing that changes.
+    materials: { floor: mFloor, wall: mWall, skirt: mSkirt },
     // Files that found no wall. Should be empty; see tools/maze.mjs.
     unhungPictures: art.unhung,
     // Round obstacles, unlike the walls. They block walking and they show up on

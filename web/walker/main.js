@@ -31,6 +31,7 @@ import { Bolts } from './world/laser.js';
 import { Hud, Radar } from './render/hud.js';
 import { pullCameraIn } from './render/camera.js';
 import { buildEnvironment } from './render/environment.js';
+import { createNightMode } from './render/night.js';
 import { scaleReport, comparisonRows, LENGTHS_M } from './scale.js';
 import { doubleSupportFraction } from './world/gait.js';
 import { Score, SCORING } from './score.js';
@@ -213,7 +214,10 @@ scene.environment = buildEnvironment(renderer);
 
 // Dropped from 1.00 because the environment now carries part of the ambient.
 // Leaving it at 1.00 with an env map on top washes the scene out.
-scene.add(new THREE.HemisphereLight(SKY, 0x6e181f, 0.55));
+// Held rather than added anonymously: night mode dims it, and it cannot dim
+// what it has no reference to.
+const hemi = new THREE.HemisphereLight(SKY, 0x6e181f, 0.55);
+scene.add(hemi);
 
 // The sun. Higher and further round than the old key light, so the walls cast
 // down the corridors rather than straight along them.
@@ -262,6 +266,10 @@ const hud = new Hud(document.getElementById('hud'));
 // One instanced swarm covering every fly. Built once; runs reuse it.
 const swarm = new FlySwarm(scene, FLIES);
 let radar = null;
+
+// Dark academia. `nightOn` outlives a run; `night` is rebuilt with the maze.
+let night = null;
+let nightOn = false;
 
 let world = null;
 let player = null;
@@ -380,6 +388,13 @@ function startRun(seed, variantId) {
   world = buildMaze({ seed });
   scene.add(world.group);
   radar = new Radar(el('radar'), wallSegments(world));
+
+  // The lamps hang off the pictures, so they are rebuilt with the maze. The
+  // night/day state itself survives a restart -- it is a way of looking at the
+  // place, not part of the run.
+  if (night) night.dispose();
+  night = createNightMode({ scene, renderer, world, hemi, sun: key, fill });
+  night.set(nightOn);
 
   brain = new FlyBrain({ seed, sex: 'male' });
   zoro = new ZoroBrain({ seed: seed + 5 });
@@ -1416,6 +1431,10 @@ window.addEventListener('keydown', (e) => {
   if (k === 'm') setRouteMode(routeMode === 'coverage' ? 'shortest' : 'coverage');
   if (k === 'r') startRun(runSeed, player ? player.variantId : undefined);
   if (k === 'h') document.body.classList.toggle('bare');
+  if (k === 'n') {
+    nightOn = !nightOn;
+    if (night) night.set(nightOn);
+  }
   // Turn the model by hand. Useful at the end, and harmless during the walk --
   // it rotates the body the viewer sees without touching the heading the brain
   // believes, so the compass readout stays honest.

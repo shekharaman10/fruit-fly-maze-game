@@ -189,8 +189,19 @@ const world = buildMaze({ seed: 20260917 });
       console.log(`     MISSING: ${file}`);
     }
   }
-  const onDisk = (await readdir(artDir))
-    .filter((f) => /[.](jpe?g|png|webp)$/i.test(f)).length;
+  // One level deep, matching artManifest.mjs: art/generated/ holds the drawn
+  // plates, and counting only the top level made the manifest look as though it
+  // had invented two dozen files.
+  const ents = await readdir(artDir, { withFileTypes: true });
+  let onDisk = 0;
+  for (const e of ents) {
+    if (e.isDirectory()) {
+      const sub = await readdir(join(artDir, e.name));
+      onDisk += sub.filter((f) => /[.](jpe?g|png|webp)$/i.test(f)).length;
+    } else if (/[.](jpe?g|png|webp)$/i.test(e.name)) {
+      onDisk++;
+    }
+  }
   console.log(`  manifest entries  : ${ART.length}, files on disk: ${onDisk}`);
   check('every manifest entry exists on disk', missing === 0, `${missing} missing`);
   check('the manifest covers every image in art/', ART.length === onDisk,

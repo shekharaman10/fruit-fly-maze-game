@@ -83,16 +83,31 @@ export async function buildManifest(opts = {}) {
   // An art folder that does not exist is an ordinary state -- a fresh clone has
   // one, because the whole folder is gitignored bar two files. Treat it as
   // empty rather than as a failure.
-  let names;
-  try {
-    names = await readdir(ART_DIR);
-  } catch {
-    names = [];
+  // ONE LEVEL DEEP, not just the top. art/generated/ holds the plates that
+  // libraryArt.py draws, and keeping them in their own folder is the whole
+  // point -- they are regenerated wholesale and should never be confused with
+  // pictures somebody chose. Paths go into the manifest with the subfolder
+  // included, and the loader builds `../art/<that>`, so a nested name needs no
+  // special handling anywhere else.
+  async function scan(dir, prefix) {
+    let ents;
+    try {
+      ents = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return [];   // a missing art/ is an ordinary state on a fresh clone
+    }
+    const out = [];
+    for (const e of ents) {
+      if (e.isDirectory()) {
+        if (!prefix) out.push(...await scan(join(dir, e.name), `${e.name}/`));
+        continue;
+      }
+      if (EXT.has(extname(e.name).toLowerCase())) out.push(prefix + e.name);
+    }
+    return out;
   }
 
-  const files = names
-    .filter((f) => EXT.has(extname(f).toLowerCase()))
-    .sort((a, b) => a.localeCompare(b));
+  const files = (await scan(ART_DIR, '')).sort((a, b) => a.localeCompare(b));
 
   const entries = [];
   const skipped = [];

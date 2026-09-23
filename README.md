@@ -57,11 +57,53 @@ that is the test for anything going in. The Vermeer is the one hanging on the
 right in the POV clip. The rest of the pictures in these recordings are
 generated placeholders; the gallery is meant to be yours.
 
+## Night: the maze as a library after hours
+
+Press `N`. The sky goes out and the sun with it, the boards and panelling go
+dark, and what is left is the pictures — each under its own small brass lamp,
+each dropping a pool of lamplight on the floor beneath it. The corridors between
+them go nearly black, so the place reads as a sequence of lit things rather than
+a lit room.
+
+**There are no extra lights in it.** That is the whole trick, and it is worth
+saying because the obvious implementation is one point light per picture — and
+with a hundred pictures that is a hundred lights, which in three.js means a
+shader whose cost is paid on *every* surface in the scene whether a picture is
+near it or not. Instead:
+
+- each picture **lights itself**, by taking its own texture as an `emissiveMap`.
+  A lit painting is mostly its own colours brightened, which is exactly what an
+  emissive map does.
+- the lamp above it is a small emissive bar; the pool beneath it is a disc with
+  a drawn radial falloff on additive blending. Both are geometry pretending to
+  be light, both are instanced, and together they are two draw calls for the
+  whole gallery.
+
+So the night is entirely material. See
+[`web/walker/render/night.js`](web/walker/render/night.js).
+
+### Plates for the walls
+
+`libraryArt.py` draws the kind of thing that hangs in a college library —
+botanical specimens, star charts, classical elevations, marbled endpapers,
+geometric constructions, coastal charts — on aged paper in iron-gall ink:
+
+```bash
+python web/walker/tools/libraryArt.py 24   # into art/generated/
+node web/walker/tools/artManifest.mjs
+```
+
+Nothing is loaded to make them; every plate is drawn from scratch, so there is
+no licence on any of it. They go in `art/generated/`, which is gitignored like
+the rest of the gallery and kept separate because it is regenerated wholesale —
+these are not pictures anybody chose.
+
 ## Controls
 
 | | |
 |---|---|
 | `C` | camera — follow, over-the-shoulder, POV, duel, top |
+| `N` | **night** — the maze as a library after hours |
 | `1`–`6` | swap character |
 | `H` | hide the overlays |
 | `L` | remove the compass landmark, and watch the heading drift |

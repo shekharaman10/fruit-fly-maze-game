@@ -16,8 +16,8 @@ node web/walker/tools/maze.mjs       # the maze, the route, and a full march
 ```
 
 Controls: `1-4` character, `C` camera (follow / POV / duel / top / free),
-`M` route (coverage or shortest), `L` landmark, `F` hold fire, `space` pause,
-`R` reset, `H` hide overlays.
+`N` night, `M` route (coverage or shortest), `L` landmark, `F` hold fire,
+`space` pause, `R` reset, `H` hide overlays.
 
 This is `docs/roadmap-3d.md` Level 2, and it obeys that document's rule about
 how to describe itself.
