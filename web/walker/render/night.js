@@ -48,8 +48,12 @@ export const DAY = {
 // moonlight.
 export const NIGHT = {
   sky: 0x07070b,
-  fogNear: 6,
-  fogFar: 30,
+  // Not 6/30. That swallowed corridors nicely from inside and then swallowed
+  // the entire maze from the free camera, which sits fifty metres out -- press
+  // N from the opening view and the screen went black. The darkness has to come
+  // from the light levels, not from fog tight enough to hide the building.
+  fogNear: 14,
+  fogFar: 78,
   hemi: 0.10,
   sun: 0.07,
   fill: 0.05,

@@ -47,3 +47,6 @@ web/walker/art/*
 # Vermeer died in 1675, so "Girl with a Pearl Earring" is public domain too.
 # Both shipped pictures are out of copyright; that is the test for going in.
 !web/walker/art/girlwithpEARL.jpg
+
+# Claude Code local settings: machine paths and session ids, not project config.
+.claude/

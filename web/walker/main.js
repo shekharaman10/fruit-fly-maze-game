@@ -271,6 +271,22 @@ let radar = null;
 let night = null;
 let nightOn = false;
 
+/**
+ * Day <-> night. Reachable from the N key and from the NIGHT button, because a
+ * key nobody is told about is a feature nobody finds -- this one sat in the
+ * build unlisted, and the first question asked of it was where the switch was.
+ */
+function toggleNight() {
+  nightOn = !nightOn;
+  if (night) night.set(nightOn);
+  const b = document.querySelector('.nightbtn');
+  // Same `data-on` the view buttons use, so it lights up the same way.
+  if (b) {
+    if (nightOn) b.dataset.on = '1';
+    else delete b.dataset.on;
+  }
+}
+
 let world = null;
 let player = null;
 let rng = makeRandom(4242);
@@ -1373,12 +1389,14 @@ function syncViewUi() {
     // imports.mjs checks every id main.js reads against the page, and an
     // exemption list is a worse answer than not needing one.
     fr.innerHTML = '<button data-act="him">FIND HIM</button>'
-      + '<button data-act="maze">WHOLE MAZE</button>';
+      + '<button data-act="maze">WHOLE MAZE</button>'
+      + '<button data-act="night" class="nightbtn">NIGHT</button>';
     fr.addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b) return;
       if (b.dataset.act === 'him') lookAtHim();
-      else frameTheMaze();
+      else if (b.dataset.act === 'maze') frameTheMaze();
+      else if (b.dataset.act === 'night') toggleNight();
     });
   }
 
@@ -1431,10 +1449,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'm') setRouteMode(routeMode === 'coverage' ? 'shortest' : 'coverage');
   if (k === 'r') startRun(runSeed, player ? player.variantId : undefined);
   if (k === 'h') document.body.classList.toggle('bare');
-  if (k === 'n') {
-    nightOn = !nightOn;
-    if (night) night.set(nightOn);
-  }
+  if (k === 'n') toggleNight();
   // Turn the model by hand. Useful at the end, and harmless during the walk --
   // it rotates the body the viewer sees without touching the heading the brain
   // believes, so the compass readout stays honest.
